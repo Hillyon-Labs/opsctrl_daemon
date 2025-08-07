@@ -15,48 +15,69 @@ async function main(): Promise<void> {
     // targetNamespaces: ['production', 'staging', 'development'],
     
     // Exclude system namespaces by default
-    excludedNamespaces: [
-      'kube-system', 
-      'kube-public', 
-      'kube-node-lease',
-      'istio-system',
-      'monitoring'
-    ],
-    
-    // Configure failure detection thresholds
-    failureThresholds: {
-      restartCount: 3,                    // Alert after 3 restarts
-      pendingTimeoutMinutes: 10,          // Alert if pending > 10 minutes
-      consecutiveFailures: 2,             // Escalate after 2 consecutive failures
-      restartRateWindowMinutes: 15        // Measure restart rate over 15 minutes
+    monitoring: {
+      excludeNamespaces: [
+        'kube-system',
+        'kube-public',
+        'kube-node-lease',
+        'istio-system',
+        'monitoring'
+      ],
+      namespaces: process.env.TARGET_NAMESPACES ? process.env.TARGET_NAMESPACES.split(',') : undefined,
+      failureDetection: {
+        minRestartThreshold : 3, // Minimum restarts to trigger detection
+        maxPendingDurationMs: 600000, // 10 minutes in milliseconds
+        enableCrashLoopDetection: true,
+        enableImagePullFailureDetection: true,
+        enableResourceLimitDetection: true
+      }
     },
+
+    // // Configure failure detection thresholds
+    // failureThresholds: {
+    //   restartCount: 3,                    // Alert after 3 restarts
+    //   pendingTimeoutMinutes: 10,          // Alert if pending > 10 minutes
+    //   consecutiveFailures: 2,             // Escalate after 2 consecutive failures
+    //   restartRateWindowMinutes: 15        // Measure restart rate over 15 minutes
+    // },
     
     // Configure automated diagnosis
-    diagnostics: {
+    diagnosis: {
       enabled: true,                      // Enable automated diagnosis
-      cacheExpirationMinutes: 5,          // Cache diagnosis results for 5 minutes
-      timeoutSeconds: 30,                 // Timeout diagnosis after 30 seconds
-      allowParallelExecution: false,      // Run diagnoses sequentially
-      maxConcurrentDiagnoses: 3           // Max 3 concurrent diagnosis processes
+      cacheConfig: {
+        ttlMs: 300000,                    // Cache diagnosis results for 5 minutes
+        maxEntries: 1000                  // Keep up to 1000 cached diagnoses
+      },
+      timeoutMs: 30000,                 // Timeout diagnosis after 30 seconds
+      opsctrlIntegration: {
+        command: 'opsctrl',
+        args: ['diagnose', '--format', 'json'],
+        workingDirectory: process.cwd() // Use current working directory
+      }
     },
     
     // Configure alerting
     alerting: {
-      webhookUrl: process.env.WEBHOOK_URL,  // Set via environment variable
-      severityFilter: ['medium', 'high', 'critical'],  // Only alert on these severities
-      rateLimitWindowMinutes: 5,          // Rate limit duplicate alerts
-      includeFullManifests: false,        // Don't include full pod manifests (for brevity)
-      customTemplate: undefined           // Use default alert template
+      webhookUrl: process.env.WEBHOOK_URL, // Set via environment variable
+      severityFilters: ['medium', 'high', 'critical'], // Only alert on these severities
+      rateLimitWindowMinutes: 5, // Rate limit duplicate alerts
+      includeFullManifests: false, // Don't include full pod manifests (for brevity)
+      customTemplate: undefined, // Use default alert template
+      retryPolicy: {
+        maxAttempts: 5,
+        backoffMs: 1000,
+        maxBackoffMs: 30000
+      }
     },
     
     // Configure watch behavior
-    watchBehavior: {
-      reconnectionDelaySeconds: 5,        // Wait 5s before reconnecting
-      maxReconnectionAttempts: 10,        // Try reconnecting up to 10 times
-      resyncIntervalMinutes: 30,          // Resync every 30 minutes
-      enableEventBuffering: true,         // Buffer events during reconnection
-      maxBufferedEvents: 1000             // Buffer up to 1000 events
-    }
+    // watchBehavior: {
+    //   reconnectionDelaySeconds: 5,        // Wait 5s before reconnecting
+    //   maxReconnectionAttempts: 10,        // Try reconnecting up to 10 times
+    //   resyncIntervalMinutes: 30,          // Resync every 30 minutes
+    //   enableEventBuffering: true,         // Buffer events during reconnection
+    //   maxBufferedEvents: 1000             // Buffer up to 1000 events
+    // }
   });
   
   // Set up event listeners for comprehensive monitoring

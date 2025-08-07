@@ -1,0 +1,270 @@
+---
+# ServiceAccount for the opsctrl-daemon
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: opsctrl-daemon
+  namespace: default
+---
+# ClusterRole with necessary permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: opsctrl-daemon
+rules:
+- apiGroups: [""]
+  resources: ["pods", "namespaces"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["get", "list", "watch", "create"]
+---
+# ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: opsctrl-daemon
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: opsctrl-daemon
+subjects:
+- kind: ServiceAccount
+  name: opsctrl-daemon
+  namespace: default
+---
+# ConfigMap for configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opsctrl-daemon-config
+  namespace: default
+data:
+  NODE_ENV: "production"
+  LOG_LEVEL: "info"
+  
+  # Monitoring configuration
+  EXCLUDE_NAMESPACES: "kube-system,kube-public,kube-node-lease"
+  MIN_RESTART_THRESHOLD: "3"
+  MAX_PENDING_DURATION_MS: "600000"
+  ENABLE_CRASH_LOOP_DETECTION: "true"
+  ENABLE_IMAGE_PULL_FAILURE_DETECTION: "true"
+  ENABLE_RESOURCE_LIMIT_DETECTION: "true"
+  
+  # Diagnosis configuration
+  DIAGNOSIS_ENABLED: "true"
+  DIAGNOSIS_TIMEOUT_MS: "30000"
+  DIAGNOSIS_CACHE_TTL_MS: "300000"
+  DIAGNOSIS_CACHE_MAX_ENTRIES: "1000"
+  
+  # Alerting configuration
+  ALERT_MAX_ATTEMPTS: "3"
+  ALERT_BACKOFF_MS: "1000"
+  ALERT_MAX_BACKOFF_MS: "30000"
+  ALERT_SEVERITY_FILTERS: "medium,high,critical"
+  ALERT_RATE_LIMIT_WINDOW_MINUTES: "5"
+  INCLUDE_FULL_MANIFESTS: "false"
+  
+  # Resilience configuration
+  RECONNECTION_ENABLED: "true"
+  RECONNECTION_INITIAL_BACKOFF_MS: "1000"
+  RECONNECTION_MAX_BACKOFF_MS: "30000"
+  RECONNECTION_BACKOFF_MULTIPLIER: "2"
+  RECONNECTION_MAX_FAILURES: "5"
+  
+  # Health check configuration
+  ENABLE_HEALTH_CHECK: "true"
+  HEALTH_CHECK_PORT: "3000"
+  
+  # DaemonSet-specific configuration
+  DAEMONSET_MODE: "true"
+  NODE_NAME: ""  # Will be set via fieldRef in deployment
+---
+# Secret for sensitive configuration (create manually with your values)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: opsctrl-daemon-secrets
+  namespace: default
+type: Opaque
+stringData:
+  WEBHOOK_URL: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+  # Add other sensitive configuration here
+---
+# DaemonSet for node-level monitoring
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: opsctrl-daemon
+  namespace: default
+  labels:
+    app: opsctrl-daemon
+    version: v1.0.0
+spec:
+  selector:
+    matchLabels:
+      app: opsctrl-daemon
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: opsctrl-daemon
+      annotations:
+        # Force restart on config changes
+        configmap-hash: "UPDATE_ON_CONFIG_CHANGE"
+    spec:
+      serviceAccountName: opsctrl-daemon
+      
+      # Security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      
+      containers:
+      - name: opsctrl-daemon
+        image: opsctrl-daemon:latest
+        imagePullPolicy: Always
+        
+        # Security context for container
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1001
+          capabilities:
+            drop:
+            - ALL
+        
+        # Environment variables from ConfigMap and Secret
+        envFrom:
+        - configMapRef:
+            name: opsctrl-daemon-config
+        - secretRef:
+            name: opsctrl-daemon-secrets
+        
+        # Additional environment variables
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        
+        # Resource limits and requests (conservative for DaemonSet)
+        resources:
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+          requests:
+            memory: "128Mi"
+            cpu: "50m"
+        
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        # Ports
+        ports:
+        - name: health
+          containerPort: 3000
+          protocol: TCP
+        
+        # Volume mounts for writable directories
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: app-tmp
+          mountPath: /app/tmp
+      
+      # Volumes
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: app-tmp
+        emptyDir: {}
+      
+      # Node selection - run on Linux nodes only
+      nodeSelector:
+        kubernetes.io/os: linux
+      
+      # Tolerations to run on all nodes including masters/control planes
+      tolerations:
+      - key: "node-role.kubernetes.io/master"
+        operator: "Exists"
+        effect: "NoSchedule"
+      - key: "node-role.kubernetes.io/control-plane"
+        operator: "Exists"
+        effect: "NoSchedule"
+      - key: "CriticalAddonsOnly"
+        operator: "Exists"
+      - key: "node.kubernetes.io/not-ready"
+        operator: "Exists"
+        effect: "NoExecute"
+        tolerationSeconds: 300
+      - key: "node.kubernetes.io/unreachable"
+        operator: "Exists"
+        effect: "NoExecute"
+        tolerationSeconds: 300
+---
+# Headless Service for DaemonSet discovery
+apiVersion: v1
+kind: Service
+metadata:
+  name: opsctrl-daemon
+  namespace: default
+  labels:
+    app: opsctrl-daemon
+spec:
+  type: ClusterIP
+  clusterIP: None  # Headless service
+  ports:
+  - name: health
+    port: 3000
+    targetPort: 3000
+    protocol: TCP
+  selector:
+    app: opsctrl-daemon
+---
+# ServiceMonitor for Prometheus (optional, requires Prometheus Operator)
+# apiVersion: monitoring.coreos.com/v1
+# kind: ServiceMonitor
+# metadata:
+#   name: opsctrl-daemon
+#   namespace: default
+#   labels:
+#     app: opsctrl-daemon
+# spec:
+#   selector:
+#     matchLabels:
+#       app: opsctrl-daemon
+#   endpoints:
+#   - port: health
+#     path: /metrics
+#     interval: 30s

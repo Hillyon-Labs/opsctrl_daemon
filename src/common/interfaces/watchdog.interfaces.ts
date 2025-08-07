@@ -193,6 +193,13 @@ export interface AlertingConfig {
   retryPolicy: AlertRetryPolicy;
   /** Severity levels that should trigger alerts */
   severityFilters: FailureSeverityLevel[];
+
+  rateLimitWindowMinutes: number,
+
+  includeFullManifests: boolean;
+
+  /** Custom template for alert messages (optional) */
+  customTemplate?: string;
 }
 
 /**

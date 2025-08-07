@@ -11,7 +11,7 @@ import {
   DiagnosisCacheEntry,
   ConnectionState,
   WatchRequest
-} from '../common/interfaces';
+} from '../common/interfaces/watchdog.interfaces';
 
 
 
@@ -356,7 +356,9 @@ export class KubernetesPodWatchdog extends EventEmitter {
           backoffMs: 1000,
           maxBackoffMs: 30000
         },
-        severityFilters: ['medium', 'high', 'critical']
+        severityFilters: ['medium', 'high', 'critical'],
+        rateLimitWindowMinutes: 0,
+        includeFullManifests: false
       },
       resilience: {
         reconnectionPolicy: {
@@ -402,7 +404,7 @@ export class KubernetesPodWatchdog extends EventEmitter {
   private async discoverMonitorableNamespaces(): Promise<string[]> {
     try {
       const namespaceList = await this.coreV1Api.listNamespace();
-      const allNamespaces = namespaceList.body.items
+      const allNamespaces = namespaceList.items
         .map((ns: k8s.V1Namespace) => ns.metadata?.name)
         .filter((name: string | undefined): name is string => Boolean(name));
 
@@ -1189,4 +1191,4 @@ export type {
   WatchdogConfiguration, 
   FailureSeverityLevel,
   FailurePattern 
-} from '../common/interfaces';
+} from '../common/interfaces/watchdog.interfaces';
