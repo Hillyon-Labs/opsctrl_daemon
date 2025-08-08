@@ -5,6 +5,7 @@ import { V1ContainerStatus } from '@kubernetes/client-node';
 import chalk from 'chalk';
 import { ContainerStatusSummary } from '../common/interfaces/containerStatus.interface';
 import { SanitizedPodDiagnostics } from '../common/interfaces/sanitizedpod.interface';
+import { KubernetesPodWatchdog } from '../core/watchdog';
 
 /**
  * Repeatedly invokes `fn()` until it returns a truthy value or the timeout elapses.
@@ -118,3 +119,35 @@ export function openBrowser(url: string) {
     process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
   exec(`${cmd} "${url}"`);
 }
+
+
+export function runHttpBasedHealthCheck(healthConfig: any, watchdog: KubernetesPodWatchdog) {
+  const http = require('http');
+      const server = http.createServer((req: any, res: any) => {
+        if (req.url === '/health') {
+          const health = watchdog.getHealthStatus();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(health));
+        } else {
+          res.writeHead(404);
+          res.end('Not Found');
+        }
+      });
+      
+      server.listen(healthConfig.port, () => {
+        console.log(`🏥 Health check server listening on port ${healthConfig.port}`);
+      });
+}
+
+
+export async function gracefulShutdown(signal: string, watchdog: KubernetesPodWatchdog) {
+      console.log(`📡 Received ${signal}, initiating graceful shutdown...`);
+      try {
+        if (watchdog) {
+          await watchdog.stopMonitoring();
+        }
+        process.exit(0);
+      } catch (error) {
+        printErrorAndExit(`❌ Error during shutdown: ${error}`, 1);
+      }
+};

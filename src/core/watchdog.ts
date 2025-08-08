@@ -19,6 +19,7 @@ import {
   sanitizeLogs
 } from './diagnosis';
 import { initKube } from './kube';
+import { printErrorAndExit } from '../utils/utils';
 
 
 
@@ -41,7 +42,7 @@ import { initKube } from './kube';
  * enabling loose coupling between failure detection and response mechanisms.
  * 
  * @author Orchide Irakoze Sr
- * @version 0.0.1
+ * @version 1.0.0
  */
 export class KubernetesPodWatchdog extends EventEmitter {
   /**
@@ -75,7 +76,7 @@ export class KubernetesPodWatchdog extends EventEmitter {
    * Connection state tracking for resilience patterns
    * Enables circuit breaker behavior and exponential backoff
    */
-  private connectionState: ConnectionState;
+  private readonly connectionState: ConnectionState;
 
   /**
    * Cleanup timer for periodic cache maintenance
@@ -87,7 +88,7 @@ export class KubernetesPodWatchdog extends EventEmitter {
    * Metrics tracking for observability and performance monitoring
    * Reset periodically and exposed via health endpoints
    */
-  private metrics: {
+  private readonly metrics: {
     totalFailuresDetected: number;
     diagnosisCallsExecuted: number;
     cacheHitRate: number;
@@ -116,7 +117,7 @@ export class KubernetesPodWatchdog extends EventEmitter {
     try {
       this.kubernetesConfig.loadFromDefault();
     } catch (error) {
-      throw new Error(`Failed to load Kubernetes configuration: ${error}`);
+      printErrorAndExit(`❌ Failed to load Kubernetes configuration: ${error}`, 1);
     }
 
     // Create API clients with validated configuration
@@ -186,8 +187,7 @@ export class KubernetesPodWatchdog extends EventEmitter {
 
       console.log('✅ Kubernetes Pod Watchdog initialization complete');
     } catch (error) {
-      console.error('❌ Failed to initialize Kubernetes Pod Watchdog:', error);
-      throw new Error(`Watchdog initialization failed: ${error}`);
+      printErrorAndExit(`❌ Failed to initialize Kubernetes Pod Watchdog: ${error}`, 1);
     }
   }
 
@@ -290,7 +290,7 @@ export class KubernetesPodWatchdog extends EventEmitter {
 
     } catch (error) {
       console.error('❌ Error during monitoring shutdown:', error);
-      throw new Error(`Shutdown failed: ${error}`);
+      printErrorAndExit(`❌ Failed to stop monitoring: ${error}`, 1);
     }
   }
 
@@ -399,12 +399,12 @@ export class KubernetesPodWatchdog extends EventEmitter {
       // Test basic API connectivity
       const namespaceList = await this.coreV1Api.listNamespace();
       if (!namespaceList) {
-        throw new Error('Empty response from Kubernetes API');
+        printErrorAndExit('Empty response from Kubernetes API',0);
       }
 
       console.log('🔗 Cluster connectivity validated');
     } catch (error) {
-      throw new Error(`Cluster connectivity validation failed: ${error}`);
+      printErrorAndExit(`Cluster connectivity validation failed: ${error}`,1);
     }
   }
 

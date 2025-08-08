@@ -6,6 +6,7 @@ import * as path from 'path';
 
 import { KubernetesPodWatchdog } from './core/watchdog';
 import { WatchdogConfig } from './config/watchdog-config';
+import { gracefulShutdown, printErrorAndExit, runHttpBasedHealthCheck } from './utils/utils';
 
 
 
@@ -71,51 +72,22 @@ async function main() {
     // Health check endpoint (simple HTTP server)
     const healthConfig = config.getHealthCheckConfig();
     if (healthConfig.enabled) {
-      const http = require('http');
-      const server = http.createServer((req: any, res: any) => {
-        if (req.url === '/health') {
-          const health = watchdog.getHealthStatus();
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(health));
-        } else {
-          res.writeHead(404);
-          res.end('Not Found');
-        }
-      });
-      
-      server.listen(healthConfig.port, () => {
-        console.log(`🏥 Health check server listening on port ${healthConfig.port}`);
-      });
+      runHttpBasedHealthCheck(healthConfig, watchdog);
     }
 
     // Graceful shutdown handling
-    const gracefulShutdown = async (signal: string) => {
-      console.log(`📡 Received ${signal}, initiating graceful shutdown...`);
-      try {
-        if (watchdog) {
-          await watchdog.stopMonitoring();
-        }
-        process.exit(0);
-      } catch (error) {
-        console.error('❌ Error during shutdown:', error);
-        process.exit(1);
-      }
-    };
-
-    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+    process.on('SIGTERM', async () => await gracefulShutdown('SIGTERM', watchdog));
+    process.on('SIGINT', async () => await gracefulShutdown('SIGINT', watchdog));
 
     // Keep the process running
     console.log('🔄 opsctrl-daemon is running. Press Ctrl+C to stop.');
 
   } catch (error) {
-    console.error('💥 Failed to start opsctrl-daemon:', error);
-    process.exit(1);
+    printErrorAndExit(`💥 Failed to start opsctrl-daemon: ${error}`, 1);
   }
 }
 
 // Start the application
 main().catch((error) => {
-  console.error('💥 Unhandled error:', error);
-  process.exit(1);
+  printErrorAndExit(`💥 Unhandled error: ${error}`, 1);
 });
