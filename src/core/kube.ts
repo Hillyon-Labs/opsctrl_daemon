@@ -1,6 +1,6 @@
 import * as k8s from '@kubernetes/client-node';
 import chalk from 'chalk';
-import { printErrorAndExit } from '../../utils/utils';
+import { printErrorAndExit } from '../utils/utils';
 
 let coreV1: k8s.CoreV1Api;
 

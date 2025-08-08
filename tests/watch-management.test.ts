@@ -21,7 +21,7 @@ describe('KubernetesPodWatchdog - Watch Stream Management', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    (k8s.KubeConfig as jest.Mock).mockImplementation(() => mockKubeConfig);
+    (k8s.KubeConfig as unknown as jest.Mock).mockImplementation(() => mockKubeConfig);
     (k8s.Watch as unknown as jest.Mock).mockImplementation(() => mockWatch);
     (mockKubeConfig.makeApiClient as jest.Mock).mockReturnValue(mockCoreV1Api);
     

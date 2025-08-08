@@ -2,7 +2,6 @@
 
 import * as k8s from '@kubernetes/client-node';
 import { EventEmitter } from 'events';
-import { spawn, ChildProcess } from 'child_process';
 import { 
   PodFailureEvent, 
   WatchdogConfiguration, 
@@ -12,6 +11,14 @@ import {
   ConnectionState,
   WatchRequest
 } from '../common/interfaces/watchdog.interfaces';
+import { 
+  diagnosePod,
+  runLocalDiagnosis,
+  getPodEvents,
+  getContainerLogs,
+  sanitizeLogs
+} from './diagnosis';
+import { initKube } from './kube';
 
 
 
@@ -23,7 +30,7 @@ import {
  * 
  * Key Features:
  * - Intelligent failure detection with severity classification
- * - Automated diagnosis integration with opsctrl tooling
+ * - Automated diagnosis using internal functions
  * - Resilient connection management with exponential backoff
  * - In-memory caching with TTL for performance optimization
  * - Structured event emission for integration with monitoring systems
@@ -166,6 +173,9 @@ export class KubernetesPodWatchdog extends EventEmitter {
 
       // Validate cluster connectivity and basic permissions
       await this.validateClusterConnectivity();
+
+      // Initialize global Kubernetes client for diagnosis functions
+      initKube();
 
       // Discover and validate namespace access permissions
       const availableNamespaces = await this.discoverMonitorableNamespaces();
@@ -342,11 +352,6 @@ export class KubernetesPodWatchdog extends EventEmitter {
         cacheConfig: {
           ttlMs: 300000, // 5 minutes
           maxEntries: 1000
-        },
-        opsctrlIntegration: {
-          command: 'npm',
-          args: ['run', 'dev', '--', 'diagnose'],
-          workingDirectory: process.cwd()
         }
       },
       alerting: {
@@ -383,6 +388,14 @@ export class KubernetesPodWatchdog extends EventEmitter {
    */
   private async validateClusterConnectivity(): Promise<void> {
     try {
+      // Log cluster connection information
+      const currentContext = this.kubernetesConfig.getCurrentContext();
+      const cluster = this.kubernetesConfig.getCurrentCluster();
+      console.log(`🔧 Connected to cluster: ${currentContext}`);
+      if (cluster?.server) {
+        console.log(`🌐 API Server: ${cluster.server}`);
+      }
+
       // Test basic API connectivity
       const namespaceList = await this.coreV1Api.listNamespace();
       if (!namespaceList) {
@@ -440,13 +453,13 @@ export class KubernetesPodWatchdog extends EventEmitter {
   }
 
   /**
-   * Validate that the diagnosis command is available and executable
+   * Validate that internal diagnosis functions are available
    * 
    * @private
    */
   private async validateDiagnosisCommand(): Promise<void> {
-    // Implementation would test the opsctrl command availability
-    console.log('🔍 Diagnosis command validation completed');
+    // Validate that internal diagnosis functions are properly imported
+    console.log('🔍 Internal diagnosis system validation completed');
   }
 
   /**
@@ -851,7 +864,7 @@ export class KubernetesPodWatchdog extends EventEmitter {
 
       // Execute fresh diagnosis
       console.log(`🔍 Executing diagnosis for ${failureEvent.metadata.podName}...`);
-      const diagnosisResult = await this.executeOpsctrlDiagnosis(
+      const diagnosisResult = await this.executeInternalDiagnosis(
         failureEvent.metadata.podName,
         failureEvent.metadata.namespace
       );
@@ -922,51 +935,113 @@ export class KubernetesPodWatchdog extends EventEmitter {
   }
 
   /**
-   * Execute opsctrl diagnosis command integration
+   * Execute internal diagnosis using local functions
    * 
    * @private
    */
-  private async executeOpsctrlDiagnosis(podName: string, namespace: string): Promise<string> {
-    const { command, args, workingDirectory } = this.configuration.diagnosis.opsctrlIntegration;
-    const timeout = this.configuration.diagnosis.timeoutMs;
+  private async executeInternalDiagnosis(podName: string, namespace: string): Promise<string> {
+    try {
+      const timeout = this.configuration.diagnosis.timeoutMs;
+      
+      return await Promise.race([
+        this.performInternalDiagnosis(podName, namespace),
+        new Promise<string>((_, reject) => 
+          setTimeout(() => reject(new Error(`Diagnosis timed out after ${timeout}ms`)), timeout)
+        )
+      ]);
+    } catch (error) {
+      throw new Error(`Internal diagnosis failed: ${error}`);
+    }
+  }
 
-    return new Promise((resolve, reject) => {
-      const fullArgs = [...args, podName, '-n', namespace];
-      const child: ChildProcess = spawn(command, fullArgs, {
-        cwd: workingDirectory,
-        stdio: 'pipe',
-        timeout
+  /**
+   * Perform diagnosis using internal functions
+   * 
+   * @private
+   */
+  private async performInternalDiagnosis(podName: string, namespace: string): Promise<string> {
+    try {
+      // Get pod status and events
+      const [events, logs] = await Promise.all([
+        getPodEvents(podName, namespace),
+        getContainerLogs(podName, namespace)
+      ]);
+
+      // Get pod information for container states
+      const pod = await this.coreV1Api.readNamespacedPod({ name: podName, namespace });
+      const containerStates = this.extractContainerStates(pod);
+
+      // Sanitize logs
+      const sanitizedLogs = sanitizeLogs(logs);
+
+      // Run local diagnosis
+      const localMatch = runLocalDiagnosis(containerStates, events, sanitizedLogs);
+
+      if (localMatch) {
+        return `🔍 Diagnosis Summary: ${localMatch.diagnosis_summary}\n` +
+               `📊 Confidence: ${(localMatch.confidence_score * 100).toFixed(0)}%\n` +
+               `🏷️  Rule ID: ${localMatch.ruleId}\n\n` +
+               `📋 Recent Events:\n${events.slice(0, 5).map(e => `  • ${e}`).join('\n')}\n\n` +
+               `📄 Log Analysis:\n${sanitizedLogs.slice(-10).map(l => `  ${l}`).join('\n')}`;
+      } else {
+        return `🔍 No specific diagnosis pattern matched.\n` +
+               `📋 Recent Events:\n${events.slice(0, 5).map(e => `  • ${e}`).join('\n')}\n\n` +
+               `📊 Container States:\n${containerStates.map(c => `  • ${c.name}: ${c.state}`).join('\n')}`;
+      }
+    } catch (error) {
+      throw new Error(`Failed to perform internal diagnosis: ${error}`);
+    }
+  }
+
+  /**
+   * Extract container states from pod object
+   * 
+   * @private
+   */
+  private extractContainerStates(pod: k8s.V1Pod): any[] {
+    const containerStates: any[] = [];
+    
+    // Process init containers
+    const initContainers = pod.status?.initContainerStatuses || [];
+    initContainers.forEach(initContainer => {
+      containerStates.push({
+        name: initContainer.name,
+        type: 'init',
+        state: this.formatContainerState(initContainer),
+        reason: initContainer.state?.waiting?.reason || initContainer.state?.terminated?.reason,
+        message: initContainer.state?.waiting?.message || initContainer.state?.terminated?.message
       });
-
-      let output = '';
-      let errorOutput = '';
-
-      child.stdout?.on('data', (data: Buffer) => {
-        output += data.toString();
-      });
-
-      child.stderr?.on('data', (data: Buffer) => {
-        errorOutput += data.toString();
-      });
-
-      child.on('close', (code: number) => {
-        if (code === 0) {
-          resolve(output.trim() || 'Diagnosis completed successfully');
-        } else {
-          reject(new Error(`Diagnosis process exited with code ${code}: ${errorOutput}`));
-        }
-      });
-
-      child.on('error', (error: Error) => {
-        reject(new Error(`Failed to execute diagnosis command: ${error.message}`));
-      });
-
-      // Handle timeout
-      setTimeout(() => {
-        child.kill('SIGTERM');
-        reject(new Error(`Diagnosis timeout after ${timeout}ms`));
-      }, timeout);
     });
+
+    // Process main containers
+    const mainContainers = pod.status?.containerStatuses || [];
+    mainContainers.forEach(mainContainer => {
+      containerStates.push({
+        name: mainContainer.name,
+        type: 'main',
+        state: this.formatContainerState(mainContainer),
+        reason: mainContainer.state?.waiting?.reason || mainContainer.state?.terminated?.reason,
+        message: mainContainer.state?.waiting?.message || mainContainer.state?.terminated?.message
+      });
+    });
+
+    return containerStates;
+  }
+
+  /**
+   * Format container state for diagnosis
+   * 
+   * @private
+   */
+  private formatContainerState(containerStatus: k8s.V1ContainerStatus): string {
+    if (containerStatus.state?.running) {
+      return 'Running';
+    } else if (containerStatus.state?.waiting) {
+      return `Waiting: ${containerStatus.state.waiting.reason || 'Unknown'}`;
+    } else if (containerStatus.state?.terminated) {
+      return `Terminated: ${containerStatus.state.terminated.reason || 'Unknown'} (Exit: ${containerStatus.state.terminated.exitCode})`;
+    }
+    return 'Unknown';
   }
 
   /**

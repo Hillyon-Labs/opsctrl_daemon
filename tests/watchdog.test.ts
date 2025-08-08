@@ -6,7 +6,9 @@ jest.mock('@kubernetes/client-node');
 
 const mockKubeConfig = {
   loadFromDefault: jest.fn(),
-  makeApiClient: jest.fn()
+  makeApiClient: jest.fn(),
+  getCurrentContext: jest.fn().mockReturnValue('test-context'),
+  getCurrentCluster: jest.fn().mockReturnValue({ server: 'https://test-cluster' })
 } as unknown as k8s.KubeConfig;
 
 const mockCoreV1Api = {
@@ -20,7 +22,7 @@ const mockWatch = {
 describe('KubernetesPodWatchdog', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    (k8s.KubeConfig as jest.Mock).mockImplementation(() => mockKubeConfig);
+    (k8s.KubeConfig as unknown as jest.Mock).mockImplementation(() => mockKubeConfig);
     (k8s.Watch as unknown as jest.Mock).mockImplementation(() => mockWatch);
     (mockKubeConfig.makeApiClient as jest.Mock).mockReturnValue(mockCoreV1Api);
     (mockKubeConfig.loadFromDefault as jest.Mock).mockImplementation(() => {}); // Reset to success
@@ -71,7 +73,7 @@ describe('KubernetesPodWatchdog', () => {
 
     it('should successfully initialize with valid cluster connectivity', async () => {
       (mockCoreV1Api.listNamespace as jest.Mock).mockResolvedValue({
-        body: { items: [] }
+        items: []
       });
 
       await expect(watchdog.initialize()).resolves.not.toThrow();
@@ -97,12 +99,10 @@ describe('KubernetesPodWatchdog', () => {
     beforeEach(() => {
       watchdog = new KubernetesPodWatchdog();
       (mockCoreV1Api.listNamespace as jest.Mock).mockResolvedValue({
-        body: { 
-          items: [
-            { metadata: { name: 'default' } },
-            { metadata: { name: 'custom' } }
-          ] 
-        }
+        items: [
+          { metadata: { name: 'default' } },
+          { metadata: { name: 'custom' } }
+        ]
       });
     });
 
@@ -132,13 +132,11 @@ describe('KubernetesPodWatchdog', () => {
 
     it('should filter excluded namespaces', async () => {
       (mockCoreV1Api.listNamespace as jest.Mock).mockResolvedValue({
-        body: { 
-          items: [
-            { metadata: { name: 'default' } },
-            { metadata: { name: 'kube-system' } }, // Should be excluded
-            { metadata: { name: 'custom' } }
-          ] 
-        }
+        items: [
+          { metadata: { name: 'default' } },
+          { metadata: { name: 'kube-system' } }, // Should be excluded
+          { metadata: { name: 'custom' } }
+        ]
       });
 
       (mockWatch.watch as jest.Mock).mockResolvedValue(undefined);

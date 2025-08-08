@@ -1,22 +1,15 @@
 import { CoreV1Event, V1Pod } from '@kubernetes/client-node';
 import chalk from 'chalk';
 
-import { gzip } from "zlib";
 import { ContainerStatusSummary } from "../common/interfaces/containerStatus.interface";
 import { LocalDiagnosisResult, MatchLine, PreliminaryCheckOutcome } from "../common/interfaces/rules.interface";
 import { SanitizedPodDiagnostics } from "../common/interfaces/sanitizedpod.interface";
 import { getCoreV1 } from "./kube";
 import { PodStatus } from '../common/interfaces/podstatus.interface';
-import { parseContainerState, printErrorAndExit } from '../../utils/utils';
-import { promisify } from 'util';
-import { HelmReleaseInfo, StackComponent } from '../common/interfaces/client.interface';
-import { runStackAnalysis, parsePodManifest } from './client';
+import { parseContainerState, printErrorAndExit } from '../utils/utils';
+import { StackComponent } from '../common/interfaces/client.interface';
 
 import rules from '../assets/rules.json'
-
-
-
-const gzipAsync = promisify(gzip);
 
 /**
  * Diagnoses the specified Kubernetes pod by collecting its status, recent events, and container logs.
@@ -88,6 +81,7 @@ async function getPodStatus(podName: string, namespace: string): Promise<PodStat
     const message = parsedError?.message ?? 'Failed to fetch pod status';
 
     printErrorAndExit(message);
+    throw error; // This will never execute but satisfies TypeScript
   }
 }
 
@@ -121,6 +115,7 @@ export async function getPodEvents(podName: string, namespace: string): Promise<
     console.error(`\n ${chalk.red(`Error fetching events for pod ${podName}`)}`);
 
     printErrorAndExit(`Error fetching events for pod ${podName}`);
+    throw err; // This will never execute but satisfies TypeScript
   }
 }
 
@@ -214,15 +209,6 @@ export function runLocalDiagnosis(
 ): LocalDiagnosisResult | null {
   const ruleFiles = loadAllRules(); // JSON objects from rules folder
 
-  const allHealthy =
-    containerStates.every(
-      (cs) => cs.state === 'Running' || cs.state.startsWith('Terminated: Completed'),
-    ) && events.length === 0;
-
-  if (allHealthy) {
-    console.log(chalk.green(`✅ Pod appears healthy. No issues detected.`));
-    process.exit(0);
-  }
 
   for (const rule of ruleFiles) {
     const matchingContainerState = rule.match.containerStates?.some((state: any) =>
@@ -291,69 +277,63 @@ export async function diagnoseStack(podName: string, namespace: string): Promise
   console.log(chalk.gray('📊 Collecting diagnostics for all components...'));
   const stackDiagnostics = await collectStackDiagnostics(stackPods, namespace);
 
-  // Step 4: Prepare and compress payload
-  const payload = {
-    primaryPod: podName,
-    helmRelease: releaseInfo.releaseName,
-    namespace,
-    timestamp: new Date().toISOString(),
-    components: stackDiagnostics,
-  };
-
-  const compressedPayload = await gzipAsync(Buffer.from(JSON.stringify(payload)));
-  console.log(
-    chalk.gray(`📦 Compressed payload: ${(compressedPayload.length / 1024).toFixed(1)}KB\n`),
-  );
-
-  // Step 5: Send for analysis
+  // Step 4: Analyze stack locally
   console.log(chalk.gray('🧠 Analyzing stack relationships and dependencies...\n'));
-  const analysis = await runStackAnalysis(compressedPayload);
+  const analysis = analyzeStackLocally(stackDiagnostics, releaseInfo.releaseName, podName);
 
   // Display results
   console.log(chalk.green('✅ Stack Analysis Complete:\n'));
+  console.log(analysis);
 
   const duration = ((performance.now() - startTime) / 1000).toFixed(1);
   console.log(chalk.gray(`\n⏱  Completed in ${duration}s`));
 }
 
 /**
- * Extracts Helm release information from a pod.
+ * Extracts Helm release information from a pod using local heuristics.
  * @param podName
  * @param namespace
  * @returns
  */
-async function extractHelmRelease(podName: string, namespace: string): Promise<HelmReleaseInfo> {
+async function extractHelmRelease(podName: string, namespace: string): Promise<{ releaseName: string; confidence: number }> {
   const coreV1 = getCoreV1();
 
   try {
     const pod = await coreV1.readNamespacedPod({ name: podName, namespace });
+    const labels = pod.metadata?.labels || {};
+    const annotations = pod.metadata?.annotations || {};
 
-    // Explicit serialization of Kubernetes object fields
-    const podManifest = {
-      metadata: {
-        name: pod.metadata?.name,
-        labels: pod.metadata?.labels,
-        annotations: pod.metadata?.annotations ?? {},
-        ownerReferences: (pod.metadata?.ownerReferences ?? []).map((ref) => ({
-          kind: ref.kind,
-          name: ref.name,
-          apiVersion: ref.apiVersion,
-          controller: ref.controller,
-          uid: ref.uid,
-        })),
-      },
-      spec: {
-        containers: (pod.spec?.containers ?? []).map((c) => ({
-          name: c.name,
-          image: c.image,
-        })),
-      },
-    };
+    let releaseName = '';
+    let confidence = 0;
 
-    // Send to your backend for LLM analysis
-    const response = await parsePodManifest(podManifest);
+    // Check Helm v3 labels (most common)
+    if (labels['app.kubernetes.io/managed-by'] === 'Helm') {
+      releaseName = labels['app.kubernetes.io/instance'] || '';
+      confidence = 0.9;
+    }
+    // Check legacy Helm v2 labels
+    else if (labels['heritage'] === 'Tiller') {
+      releaseName = labels['release'] || '';
+      confidence = 0.8;
+    }
+    // Check app labels that might indicate Helm deployment
+    else if (labels['helm.sh/chart']) {
+      releaseName = labels['app.kubernetes.io/instance'] || labels['app'] || '';
+      confidence = 0.7;
+    }
+    // Fallback: try to infer from pod name patterns
+    else {
+      const podNameParts = podName.split('-');
+      if (podNameParts.length >= 2) {
+        // Common pattern: release-name-component-hash
+        releaseName = podNameParts.slice(0, -2).join('-');
+        confidence = 0.5;
+      }
+    }
 
-    return response;
+    console.log(`🔍 Helm release detection: ${releaseName} (confidence: ${Math.round(confidence * 100)}%)`);
+    
+    return { releaseName, confidence };
   } catch (error) {
     console.error('Failed to extract Helm release:', error);
     return { releaseName: '', confidence: 0 };
@@ -436,6 +416,169 @@ async function collectStackDiagnostics(
   });
 
   return results;
+}
+
+/**
+ * Analyzes stack components locally using rule-based logic
+ * @param stackDiagnostics 
+ * @param releaseName 
+ * @param primaryPod 
+ * @returns 
+ */
+function analyzeStackLocally(stackDiagnostics: StackComponent[], releaseName: string, primaryPod: string): string {
+  const failedComponents = stackDiagnostics.filter(component => 
+    component.status.phase !== 'Running' && 
+    component.status.containerStates.some(state => 
+      !state.state.startsWith('Running') && !state.state.startsWith('Terminated: Completed')
+    )
+  );
+
+  const healthyComponents = stackDiagnostics.filter(component => 
+    component.status.phase === 'Running' && 
+    component.status.containerStates.every(state => 
+      state.state.startsWith('Running') || state.state.startsWith('Terminated: Completed')
+    )
+  );
+
+  let analysis = `📊 Stack Analysis for Helm Release: ${releaseName}\n\n`;
+  
+  analysis += `🎯 Primary Pod: ${primaryPod}\n`;
+  analysis += `📈 Total Components: ${stackDiagnostics.length}\n`;
+  analysis += `✅ Healthy Components: ${healthyComponents.length}\n`;
+  analysis += `❌ Failed Components: ${failedComponents.length}\n\n`;
+
+  if (failedComponents.length > 0) {
+    analysis += `🚨 Failed Components Analysis:\n`;
+    failedComponents.forEach(component => {
+      analysis += `\n📦 ${component.podName}:\n`;
+      analysis += `   Phase: ${component.status.phase}\n`;
+      
+      // Analyze container states
+      const failedContainers = component.status.containerStates.filter(state => 
+        !state.state.startsWith('Running') && !state.state.startsWith('Terminated: Completed')
+      );
+      
+      failedContainers.forEach(container => {
+        analysis += `   ❌ Container ${container.name}: ${container.state}\n`;
+        if (container.reason) {
+          analysis += `      Reason: ${container.reason}\n`;
+        }
+        // Additional container state information would be included here
+        // if available in the container state summary
+      });
+
+      // Analyze recent events
+      if (component.events.length > 0) {
+        analysis += `   📋 Recent Events:\n`;
+        component.events.slice(0, 3).forEach(event => {
+          analysis += `      • ${event}\n`;
+        });
+      }
+
+      // Run local diagnosis on this component
+      const localMatch = runLocalDiagnosis(component.status.containerStates, component.events, component.logs);
+      if (localMatch) {
+        analysis += `   🔍 Diagnosis: ${localMatch.diagnosis_summary}\n`;
+        analysis += `   📊 Confidence: ${(localMatch.confidence_score * 100).toFixed(0)}%\n`;
+      }
+    });
+
+    // Stack-level insights
+    analysis += `\n🔗 Stack-Level Insights:\n`;
+    
+    // Check for common failure patterns across components
+    const commonFailures = detectCommonFailures(failedComponents);
+    if (commonFailures.length > 0) {
+      analysis += `\n⚠️  Common Issues Detected:\n`;
+      commonFailures.forEach(failure => {
+        analysis += `   • ${failure}\n`;
+      });
+    }
+
+    // Dependency analysis
+    const dependencyIssues = analyzeDependencies(stackDiagnostics, releaseName);
+    if (dependencyIssues.length > 0) {
+      analysis += `\n🔗 Potential Dependency Issues:\n`;
+      dependencyIssues.forEach(issue => {
+        analysis += `   • ${issue}\n`;
+      });
+    }
+  } else {
+    analysis += `✅ All components in the stack are healthy.\n`;
+    analysis += `🎉 No issues detected in the ${releaseName} release.\n`;
+  }
+
+  return analysis;
+}
+
+/**
+ * Detects common failure patterns across multiple components
+ */
+function detectCommonFailures(failedComponents: StackComponent[]): string[] {
+  const issues: string[] = [];
+  
+  // Check for image pull failures
+  const imagePullFailures = failedComponents.filter(component =>
+    component.events.some(event => event.includes('ImagePull')) ||
+    component.status.containerStates.some(state => state.reason?.includes('ImagePull'))
+  );
+  if (imagePullFailures.length > 0) {
+    issues.push(`Image pull failures affecting ${imagePullFailures.length} components`);
+  }
+
+  // Check for resource constraints
+  const resourceIssues = failedComponents.filter(component =>
+    component.events.some(event => 
+      event.includes('Insufficient') || event.includes('OutOfMemory') || event.includes('OutOfCPU')
+    )
+  );
+  if (resourceIssues.length > 0) {
+    issues.push(`Resource constraints affecting ${resourceIssues.length} components`);
+  }
+
+  // Check for configuration issues
+  const configIssues = failedComponents.filter(component =>
+    component.events.some(event => 
+      event.includes('ConfigMap') || event.includes('Secret') || event.includes('Mount')
+    )
+  );
+  if (configIssues.length > 0) {
+    issues.push(`Configuration/mounting issues affecting ${configIssues.length} components`);
+  }
+
+  return issues;
+}
+
+/**
+ * Analyzes potential dependency issues between components
+ */
+function analyzeDependencies(stackDiagnostics: StackComponent[], releaseName: string): string[] {
+  const issues: string[] = [];
+  
+  // Look for database/service dependencies
+  const serviceComponents = stackDiagnostics.filter(component => 
+    component.podName.includes('db') || 
+    component.podName.includes('database') || 
+    component.podName.includes('redis') || 
+    component.podName.includes('cache')
+  );
+
+  const failedServices = serviceComponents.filter(component => 
+    component.status.phase !== 'Running'
+  );
+
+  if (failedServices.length > 0) {
+    const dependentComponents = stackDiagnostics.filter(component => 
+      !serviceComponents.includes(component) && 
+      component.status.phase !== 'Running'
+    );
+    
+    if (dependentComponents.length > 0) {
+      issues.push(`Failed services (${failedServices.map(s => s.podName).join(', ')}) may be causing downstream failures`);
+    }
+  }
+
+  return issues;
 }
 
 function matchLine(line: string, matcher: MatchLine): boolean {

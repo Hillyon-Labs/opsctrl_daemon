@@ -1,6 +1,6 @@
 import { KubernetesPodWatchdog } from '../src/core/watchdog';
 import * as k8s from '@kubernetes/client-node';
-import { PodFailureEvent } from '../src/common/interfaces';
+import { PodFailureEvent } from '../src/common/interfaces/watchdog.interfaces';
 
 jest.mock('@kubernetes/client-node');
 
@@ -27,7 +27,7 @@ describe('KubernetesPodWatchdog - Alerting', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    (k8s.KubeConfig as jest.Mock).mockImplementation(() => mockKubeConfig);
+    (k8s.KubeConfig as unknown as jest.Mock).mockImplementation(() => mockKubeConfig);
     (k8s.Watch as unknown as jest.Mock).mockImplementation(() => mockWatch);
     (mockKubeConfig.makeApiClient as jest.Mock).mockReturnValue(mockCoreV1Api);
     

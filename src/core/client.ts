@@ -1,7 +1,7 @@
 import { promisify } from "util";
 import { gzip } from "zlib";
 import axios from 'axios';
-import { printErrorAndExit } from "../../utils/utils";
+import { printErrorAndExit } from "../utils/utils";
 import { DiagnoseRequest, HelmReleaseInfo } from "../common/interfaces/client.interface";
 import { DEFAULT_API_URL } from "./config";
 
@@ -38,9 +38,10 @@ export async function parsePodManifest(manifest: any): Promise<HelmReleaseInfo> 
       body: JSON.stringify(manifest),
     });
 
-    return await response.json();
+    return await response.json() as HelmReleaseInfo;
   } catch (error) {
     printErrorAndExit('Error parsing pod manifest');
+    throw error; // This will never execute but satisfies TypeScript
   }
 }
 
@@ -61,5 +62,6 @@ export async function runStackAnalysis(compressedPayload: Buffer): Promise<strin
     return response.data.analysis || response.data; // depends on backend response shape
   } catch (error: any) {
     printErrorAndExit(error.response?.data.message ?? 'Failed to analyze stack');
+    throw error; // This will never execute but satisfies TypeScript
   }
 }

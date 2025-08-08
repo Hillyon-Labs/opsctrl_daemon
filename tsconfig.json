@@ -12,11 +12,13 @@
     "resolveJsonModule": true,
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
   },
   "include": [
-    "*.ts"
-, "src/index.ts", "src/core/index.ts"  ],
+    "src/**/*.ts"
+  ],
   "exclude": [
     "node_modules",
     "dist"

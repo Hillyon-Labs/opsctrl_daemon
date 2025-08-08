@@ -1,10 +1,10 @@
 import { KubernetesPodWatchdog } from '../src/core/watchdog';
 import * as k8s from '@kubernetes/client-node';
-import { ChildProcess } from 'child_process';
-import { PodFailureEvent } from '../src/common/interfaces';
+import { PodFailureEvent } from '../src/common/interfaces/watchdog.interfaces';
 
 jest.mock('@kubernetes/client-node');
-jest.mock('child_process');
+jest.mock('../src/utils/utils', () => require('./__mocks__/utils'));
+jest.mock('../src/core/kube');
 
 const mockKubeConfig = {
   loadFromDefault: jest.fn(),
@@ -24,7 +24,7 @@ describe('KubernetesPodWatchdog - Diagnosis', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    (k8s.KubeConfig as jest.Mock).mockImplementation(() => mockKubeConfig);
+    (k8s.KubeConfig as unknown as jest.Mock).mockImplementation(() => mockKubeConfig);
     (k8s.Watch as unknown as jest.Mock).mockImplementation(() => mockWatch);
     (mockKubeConfig.makeApiClient as jest.Mock).mockReturnValue(mockCoreV1Api);
     
@@ -36,13 +36,12 @@ describe('KubernetesPodWatchdog - Diagnosis', () => {
           ttlMs: 300000,
           maxEntries: 100
         },
-        opsctrlIntegration: {
-          command: 'npm',
-          args: ['run', 'dev', '--', 'diagnose'],
-          workingDirectory: process.cwd()
-        }
       }
     });
+
+    // Mock the internal diagnosis methods to prevent calling actual diagnosis functions
+    jest.spyOn(watchdog as any, 'performInternalDiagnosis').mockResolvedValue('Mock diagnosis result');
+    jest.spyOn(watchdog as any, 'executeInternalDiagnosis').mockResolvedValue('Mock diagnosis result');
   });
 
   describe('shouldExecuteDiagnosis', () => {
@@ -52,7 +51,6 @@ describe('KubernetesPodWatchdog - Diagnosis', () => {
           enabled: false,
           timeoutMs: 30000,
           cacheConfig: { ttlMs: 300000, maxEntries: 100 },
-          opsctrlIntegration: { command: 'npm', args: ['test'], workingDirectory: '.' }
         }
       });
 
@@ -134,128 +132,6 @@ describe('KubernetesPodWatchdog - Diagnosis', () => {
     });
   });
 
-  describe('executeOpsctrlDiagnosis', () => {
-    let mockSpawn: jest.Mock;
-    let mockChildProcess: {
-      stdout: { on: jest.Mock };
-      stderr: { on: jest.Mock };
-      on: jest.Mock;
-      kill: jest.Mock;
-    };
-
-    beforeEach(() => {
-      mockChildProcess = {
-        stdout: { on: jest.fn() },
-        stderr: { on: jest.fn() },
-        on: jest.fn(),
-        kill: jest.fn()
-      };
-
-      mockSpawn = jest.fn().mockReturnValue(mockChildProcess);
-      jest.doMock('child_process', () => ({ spawn: mockSpawn }));
-    });
-
-    it('should execute diagnosis command successfully', async () => {
-      const { spawn } = require('child_process');
-      spawn.mockReturnValue(mockChildProcess);
-
-      // Mock successful execution
-      mockChildProcess.stdout.on.mockImplementation((event, callback) => {
-        if (event === 'data') {
-          callback(Buffer.from('Diagnosis completed successfully'));
-        }
-      });
-
-      mockChildProcess.on.mockImplementation((event, callback) => {
-        if (event === 'close') {
-          callback(0); // Exit code 0 for success
-        }
-      });
-
-      const promise = (watchdog as any).executeOpsctrlDiagnosis('test-pod', 'default');
-      
-      // Trigger the callbacks
-      const dataCallback = mockChildProcess.stdout.on.mock.calls.find(call => call[0] === 'data')[1];
-      const closeCallback = mockChildProcess.on.mock.calls.find(call => call[0] === 'close')[1];
-      
-      dataCallback(Buffer.from('Diagnosis completed successfully'));
-      closeCallback(0);
-
-      const result = await promise;
-      
-      expect(result).toBe('Diagnosis completed successfully');
-      expect(spawn).toHaveBeenCalledWith('npm', 
-        ['run', 'dev', '--', 'diagnose', 'test-pod', '-n', 'default'], 
-        expect.objectContaining({
-          cwd: process.cwd(),
-          stdio: 'pipe',
-          timeout: 30000
-        })
-      );
-    });
-
-    it('should handle diagnosis command failure', async () => {
-      const { spawn } = require('child_process');
-      spawn.mockReturnValue(mockChildProcess);
-
-      mockChildProcess.stderr.on.mockImplementation((event, callback) => {
-        if (event === 'data') {
-          callback(Buffer.from('Error: Pod not found'));
-        }
-      });
-
-      mockChildProcess.on.mockImplementation((event, callback) => {
-        if (event === 'close') {
-          callback(1); // Non-zero exit code for failure
-        }
-      });
-
-      const promise = (watchdog as any).executeOpsctrlDiagnosis('test-pod', 'default');
-      
-      const errorCallback = mockChildProcess.stderr.on.mock.calls.find(call => call[0] === 'data')[1];
-      const closeCallback = mockChildProcess.on.mock.calls.find(call => call[0] === 'close')[1];
-      
-      errorCallback(Buffer.from('Error: Pod not found'));
-      closeCallback(1);
-
-      await expect(promise).rejects.toThrow('Diagnosis process exited with code 1');
-    });
-
-    it('should handle diagnosis command timeout', async () => {
-      jest.useFakeTimers();
-      
-      const { spawn } = require('child_process');
-      spawn.mockReturnValue(mockChildProcess);
-
-      const promise = (watchdog as any).executeOpsctrlDiagnosis('test-pod', 'default');
-      
-      // Fast-forward time to trigger timeout
-      jest.advanceTimersByTime(30001);
-
-      await expect(promise).rejects.toThrow('Diagnosis timeout after 30000ms');
-      expect(mockChildProcess.kill).toHaveBeenCalledWith('SIGTERM');
-      
-      jest.useRealTimers();
-    });
-
-    it('should handle spawn error', async () => {
-      const { spawn } = require('child_process');
-      spawn.mockReturnValue(mockChildProcess);
-
-      mockChildProcess.on.mockImplementation((event, callback) => {
-        if (event === 'error') {
-          callback(new Error('Command not found'));
-        }
-      });
-
-      const promise = (watchdog as any).executeOpsctrlDiagnosis('test-pod', 'default');
-      
-      const errorCallback = mockChildProcess.on.mock.calls.find(call => call[0] === 'error')[1];
-      errorCallback(new Error('Command not found'));
-
-      await expect(promise).rejects.toThrow('Failed to execute diagnosis command');
-    });
-  });
 
   describe('executeDiagnosisWorkflow', () => {
     it('should use cached diagnosis when available', async () => {
@@ -290,16 +166,18 @@ describe('KubernetesPodWatchdog - Diagnosis', () => {
       };
 
       (watchdog as any).getDiagnosisFromCache = jest.fn().mockReturnValue(null);
-      (watchdog as any).executeOpsctrlDiagnosis = jest.fn().mockResolvedValue('Fresh diagnosis result');
       (watchdog as any).cacheDiagnosisResult = jest.fn();
+
+      // Override the mock from beforeEach for this specific test
+      (watchdog as any).executeInternalDiagnosis = jest.fn().mockResolvedValue('Internal diagnosis result');
 
       await (watchdog as any).executeDiagnosisWorkflow(failureEvent);
 
       expect(failureEvent.diagnosis.executed).toBe(true);
-      expect(failureEvent.diagnosis.result).toBe('Fresh diagnosis result');
+      expect(failureEvent.diagnosis.result).toBe('Internal diagnosis result');
       expect(failureEvent.diagnosis.cached).toBe(false);
-      expect((watchdog as any).executeOpsctrlDiagnosis).toHaveBeenCalledWith('test-pod', 'default');
-      expect((watchdog as any).cacheDiagnosisResult).toHaveBeenCalledWith('default/test-pod', 'Fresh diagnosis result');
+      expect((watchdog as any).executeInternalDiagnosis).toHaveBeenCalledWith('test-pod', 'default');
+      expect((watchdog as any).cacheDiagnosisResult).toHaveBeenCalledWith('default/test-pod', 'Internal diagnosis result');
     });
 
     it('should handle diagnosis execution failure', async () => {
@@ -311,14 +189,16 @@ describe('KubernetesPodWatchdog - Diagnosis', () => {
       };
 
       (watchdog as any).getDiagnosisFromCache = jest.fn().mockReturnValue(null);
-      (watchdog as any).executeOpsctrlDiagnosis = jest.fn().mockRejectedValue(new Error('Diagnosis failed'));
+      
+      // Override the mock from beforeEach for this specific test to simulate failure
+      (watchdog as any).executeInternalDiagnosis = jest.fn().mockRejectedValue(new Error('Internal diagnosis failed'));
 
       const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
       await (watchdog as any).executeDiagnosisWorkflow(failureEvent);
 
       expect(failureEvent.diagnosis.executed).toBe(false);
-      expect(failureEvent.diagnosis.result).toContain('Diagnosis failed');
+      expect(failureEvent.diagnosis.result).toContain('Internal diagnosis failed');
       expect(failureEvent.diagnosis.cached).toBe(false);
       expect(consoleSpy).toHaveBeenCalled();
 

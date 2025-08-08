@@ -1,18 +1,14 @@
 #!/usr/bin/env node
 
-/**
- * Main entry point for the opsctrl-daemon
- * Kubernetes Pod Monitoring and Failure Detection Daemon
- */
 
-// Load environment variables from .env files
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 
-// Load environment variables in order of preference
-// 1. .env.local (local overrides, not committed)
-// 2. .env.{NODE_ENV} (environment-specific)
-// 3. .env (default configuration)
+import { KubernetesPodWatchdog } from './core/watchdog';
+import { WatchdogConfig } from './config/watchdog-config';
+
+
+
 const envFiles = [
   '.env.local',
   `.env.${process.env.NODE_ENV}`,
@@ -24,56 +20,6 @@ envFiles.forEach(file => {
   dotenv.config({ path: envPath });
 });
 
-import { KubernetesPodWatchdog } from './core/watchdog';
-import { WatchdogConfiguration } from './common/interfaces/watchdog.interfaces';
-
-// Configuration from environment variables
-const config: Partial<WatchdogConfiguration> = {
-  monitoring: {
-    namespaces: process.env.WATCH_NAMESPACES?.split(','),
-    excludeNamespaces: process.env.EXCLUDE_NAMESPACES?.split(',') || ['kube-system', 'kube-public', 'kube-node-lease'],
-    failureDetection: {
-      minRestartThreshold: parseInt(process.env.MIN_RESTART_THRESHOLD || '3'),
-      maxPendingDurationMs: parseInt(process.env.MAX_PENDING_DURATION_MS || '600000'),
-      enableCrashLoopDetection: process.env.ENABLE_CRASH_LOOP_DETECTION !== 'false',
-      enableImagePullFailureDetection: process.env.ENABLE_IMAGE_PULL_FAILURE_DETECTION !== 'false',
-      enableResourceLimitDetection: process.env.ENABLE_RESOURCE_LIMIT_DETECTION !== 'false'
-    }
-  },
-  diagnosis: {
-    enabled: process.env.DIAGNOSIS_ENABLED !== 'false',
-    timeoutMs: parseInt(process.env.DIAGNOSIS_TIMEOUT_MS || '30000'),
-    cacheConfig: {
-      ttlMs: parseInt(process.env.DIAGNOSIS_CACHE_TTL_MS || '300000'),
-      maxEntries: parseInt(process.env.DIAGNOSIS_CACHE_MAX_ENTRIES || '1000')
-    },
-    opsctrlIntegration: {
-      command: process.env.OPSCTRL_COMMAND || 'npm',
-      args: process.env.OPSCTRL_ARGS?.split(' ') || ['run', 'dev', '--', 'diagnose'],
-      workingDirectory: process.env.OPSCTRL_WORKING_DIR || process.cwd()
-    }
-  },
-  alerting: {
-    webhookUrl: process.env.WEBHOOK_URL,
-    retryPolicy: {
-      maxAttempts: parseInt(process.env.ALERT_MAX_ATTEMPTS || '3'),
-      backoffMs: parseInt(process.env.ALERT_BACKOFF_MS || '1000'),
-      maxBackoffMs: parseInt(process.env.ALERT_MAX_BACKOFF_MS || '30000')
-    },
-    severityFilters: (process.env.ALERT_SEVERITY_FILTERS?.split(',') as any) || ['medium', 'high', 'critical'],
-    rateLimitWindowMinutes: parseInt(process.env.ALERT_RATE_LIMIT_WINDOW_MINUTES || '0'),
-    includeFullManifests: process.env.INCLUDE_FULL_MANIFESTS === 'true'
-  },
-  resilience: {
-    reconnectionPolicy: {
-      enabled: process.env.RECONNECTION_ENABLED !== 'false',
-      initialBackoffMs: parseInt(process.env.RECONNECTION_INITIAL_BACKOFF_MS || '1000'),
-      maxBackoffMs: parseInt(process.env.RECONNECTION_MAX_BACKOFF_MS || '30000'),
-      backoffMultiplier: parseFloat(process.env.RECONNECTION_BACKOFF_MULTIPLIER || '2'),
-      maxConsecutiveFailures: parseInt(process.env.RECONNECTION_MAX_FAILURES || '5')
-    }
-  }
-};
 
 async function main() {
   console.log('🚀 Starting opsctrl-daemon...');
@@ -91,8 +37,11 @@ async function main() {
   let watchdog: KubernetesPodWatchdog;
 
   try {
+    // Load and validate configuration from environment variables
+    const config = WatchdogConfig.fromEnvironment();
+    
     // Initialize the watchdog with configuration
-    watchdog = new KubernetesPodWatchdog(config);
+    watchdog = new KubernetesPodWatchdog(config.toWatchdogConfiguration());
 
     // Set up event listeners
     watchdog.on('podFailure', (failureEvent) => {
@@ -120,7 +69,8 @@ async function main() {
     await watchdog.startMonitoring();
 
     // Health check endpoint (simple HTTP server)
-    if (process.env.ENABLE_HEALTH_CHECK === 'true') {
+    const healthConfig = config.getHealthCheckConfig();
+    if (healthConfig.enabled) {
       const http = require('http');
       const server = http.createServer((req: any, res: any) => {
         if (req.url === '/health') {
@@ -133,9 +83,8 @@ async function main() {
         }
       });
       
-      const port = process.env.HEALTH_CHECK_PORT || 3000;
-      server.listen(port, () => {
-        console.log(`🏥 Health check server listening on port ${port}`);
+      server.listen(healthConfig.port, () => {
+        console.log(`🏥 Health check server listening on port ${healthConfig.port}`);
       });
     }
 
