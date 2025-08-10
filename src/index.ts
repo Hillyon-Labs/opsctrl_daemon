@@ -46,7 +46,14 @@ async function main() {
     const clusterConfig = config.getClusterRegistrationConfig();
     let registrationService: ClusterRegistrationService | null = null;
     
-    if (!clusterConfig.skipRegistration && clusterConfig.clusterName && clusterConfig.userEmail) {
+    if (clusterConfig.skipRegistration) {
+      console.log('ℹ️  Cluster registration disabled (SKIP_CLUSTER_REGISTRATION=true)');
+    } else {
+      // Registration is required
+      if (!clusterConfig.clusterName || !clusterConfig.userEmail) {
+        printErrorAndExit('❌ Cluster registration is required but CLUSTER_NAME and/or USER_EMAIL environment variables are not set. Set SKIP_CLUSTER_REGISTRATION=true to disable registration requirement.', 1);
+      }
+      
       console.log('🔗 Cluster registration is required before starting monitoring...');
       
       registrationService = new ClusterRegistrationService({
@@ -80,11 +87,6 @@ async function main() {
       
       // Set cluster ID as environment variable for use by watchdog
       process.env.CLUSTER_ID = clusterInfo.cluster_id;
-      
-    } else if (!clusterConfig.skipRegistration) {
-      console.log('ℹ️  Cluster registration skipped (CLUSTER_NAME or USER_EMAIL not provided)');
-    } else {
-      console.log('ℹ️  Cluster registration disabled (SKIP_CLUSTER_REGISTRATION=true)');
     }
     
     console.log('🚀 Initializing monitoring system...');
