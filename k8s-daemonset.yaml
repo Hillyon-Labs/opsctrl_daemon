@@ -79,6 +79,12 @@ data:
   # DaemonSet-specific configuration
   DAEMONSET_MODE: "true"
   NODE_NAME: ""  # Will be set via fieldRef in deployment
+  
+  # Cluster registration configuration (set via Helm values)
+  CLUSTER_NAME: ""      # Will be overridden by Helm
+  USER_EMAIL: ""        # Will be overridden by Helm
+  OPSCTRL_BACKEND_URL: "https://api.opsctrl.io"
+  SKIP_CLUSTER_REGISTRATION: "false"
 ---
 # Secret for sensitive configuration (create manually with your values)
 apiVersion: v1

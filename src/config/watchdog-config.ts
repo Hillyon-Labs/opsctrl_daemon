@@ -232,6 +232,36 @@ const environmentSchema = Joi.object({
     .default('')
     .description('Custom kubeconfig path (empty for default)'),
 
+  // ====================================
+  // CLUSTER REGISTRATION CONFIGURATION
+  // ====================================
+  CLUSTER_NAME: Joi.string()
+    .optional()
+    .pattern(/^[a-zA-Z0-9-_]+$/)
+    .min(1)
+    .max(64)
+    .messages({
+      'string.pattern.base': 'CLUSTER_NAME must contain only alphanumeric characters, hyphens, and underscores',
+      'string.min': 'CLUSTER_NAME must be at least 1 character long',
+      'string.max': 'CLUSTER_NAME must be less than 64 characters long'
+    })
+    .description('Unique name for this cluster (for registration with backend)'),
+
+  USER_EMAIL: Joi.string()
+    .optional()
+    .email()
+    .description('User email address for cluster registration'),
+
+  OPSCTRL_BACKEND_URL: Joi.string()
+    .optional()
+    .uri({ scheme: ['http', 'https'] })
+    .default('https://api.opsctrl.io')
+    .description('Backend URL for cluster registration'),
+
+  SKIP_CLUSTER_REGISTRATION: Joi.boolean()
+    .default(false)
+    .description('Skip cluster registration on startup'),
+
 }).required();
 
 /**
@@ -297,6 +327,12 @@ interface ValidatedConfig {
     mode: boolean;
     kubernetesDebug: boolean;
     kubeconfigPath?: string;
+  };
+  clusterRegistration: {
+    clusterName?: string;
+    userEmail?: string;
+    backendUrl: string;
+    skipRegistration: boolean;
   };
 }
 
@@ -420,6 +456,12 @@ export class WatchdogConfig {
         kubernetesDebug: value.KUBERNETES_DEBUG,
         kubeconfigPath: value.KUBECONFIG_PATH || undefined,
       },
+      clusterRegistration: {
+        clusterName: value.CLUSTER_NAME || undefined,
+        userEmail: value.USER_EMAIL || undefined,
+        backendUrl: value.OPSCTRL_BACKEND_URL,
+        skipRegistration: value.SKIP_CLUSTER_REGISTRATION,
+      },
     };
 
     const warnings: string[] = [];
@@ -480,5 +522,12 @@ export class WatchdogConfig {
       nodeEnv: this.validatedConfig.nodeEnv,
       logLevel: this.validatedConfig.logLevel,
     };
+  }
+
+  /**
+   * Get cluster registration configuration
+   */
+  getClusterRegistrationConfig() {
+    return this.validatedConfig.clusterRegistration;
   }
 }

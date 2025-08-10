@@ -6,7 +6,8 @@ import * as path from 'path';
 
 import { KubernetesPodWatchdog } from './core/watchdog';
 import { WatchdogConfig } from './config/watchdog-config';
-import { gracefulShutdown, printErrorAndExit, runHttpBasedHealthCheck } from './utils/utils';
+import { gracefulShutdown, printErrorAndExit, runHttpBasedHealthCheck, waitUntil } from './utils/utils';
+import { ClusterRegistrationService } from './core/cluster-registration';
 
 
 
@@ -40,6 +41,53 @@ async function main() {
   try {
     // Load and validate configuration from environment variables
     const config = WatchdogConfig.fromEnvironment();
+    
+    // Handle cluster registration if configured
+    const clusterConfig = config.getClusterRegistrationConfig();
+    let registrationService: ClusterRegistrationService | null = null;
+    
+    if (!clusterConfig.skipRegistration && clusterConfig.clusterName && clusterConfig.userEmail) {
+      console.log('🔗 Cluster registration is required before starting monitoring...');
+      
+      registrationService = new ClusterRegistrationService({
+        clusterName: clusterConfig.clusterName,
+        userEmail: clusterConfig.userEmail,
+        version: process.env.npm_package_version || '1.0.0',
+        backendUrl: clusterConfig.backendUrl
+      });
+
+      // Wait until cluster is successfully registered
+      console.log('⏳ Waiting for cluster registration to complete...');
+      const clusterInfo = await waitUntil(
+        async () => {
+          try {
+            const info = await registrationService!.ensureClusterRegistration();
+            return info;
+          } catch (error) {
+            console.log(`🔄 Registration attempt failed: ${error}. Retrying...`);
+            return undefined;
+          }
+        },
+        300000, // 5 minutes timeout
+        10000   // 10 second intervals
+      );
+
+      if (!clusterInfo) {
+        printErrorAndExit('❌ Failed to register cluster within timeout period. Cannot proceed with monitoring.', 1);
+      }
+
+      console.log(`🎯 Cluster registered successfully: ${clusterInfo.cluster_id}`);
+      
+      // Set cluster ID as environment variable for use by watchdog
+      process.env.CLUSTER_ID = clusterInfo.cluster_id;
+      
+    } else if (!clusterConfig.skipRegistration) {
+      console.log('ℹ️  Cluster registration skipped (CLUSTER_NAME or USER_EMAIL not provided)');
+    } else {
+      console.log('ℹ️  Cluster registration disabled (SKIP_CLUSTER_REGISTRATION=true)');
+    }
+    
+    console.log('🚀 Initializing monitoring system...');
     
     // Initialize the watchdog with configuration
     watchdog = new KubernetesPodWatchdog(config.toWatchdogConfiguration());

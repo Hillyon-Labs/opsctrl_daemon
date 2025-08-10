@@ -1,0 +1,60 @@
+# Example of how the Helm chart would be structured
+# This shows how to use the daemon with cluster registration
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opsctrl-daemon-config
+  namespace: {{ .Values.namespace | default "opsctrl" }}
+data:
+  NODE_ENV: "production"
+  LOG_LEVEL: "info"
+  
+  # Monitoring configuration
+  EXCLUDE_NAMESPACES: "kube-system,kube-public,kube-node-lease"
+  MIN_RESTART_THRESHOLD: "3"
+  MAX_PENDING_DURATION_MS: "600000"
+  ENABLE_CRASH_LOOP_DETECTION: "true"
+  ENABLE_IMAGE_PULL_FAILURE_DETECTION: "true"
+  ENABLE_RESOURCE_LIMIT_DETECTION: "true"
+  
+  # Diagnosis configuration
+  DIAGNOSIS_ENABLED: "true"
+  DIAGNOSIS_TIMEOUT_MS: "30000"
+  DIAGNOSIS_CACHE_TTL_MS: "300000"
+  DIAGNOSIS_CACHE_MAX_ENTRIES: "1000"
+  
+  # Health check configuration
+  ENABLE_HEALTH_CHECK: "true"
+  HEALTH_CHECK_PORT: "3000"
+  
+  # DaemonSet-specific configuration
+  DAEMONSET_MODE: "true"
+  
+  # Cluster registration configuration (from Helm values)
+  CLUSTER_NAME: {{ .Values.clusterName | quote }}
+  USER_EMAIL: {{ .Values.userEmail | quote }}
+  OPSCTRL_BACKEND_URL: {{ .Values.backendUrl | default "https://api.opsctrl.io" | quote }}
+  SKIP_CLUSTER_REGISTRATION: {{ .Values.skipRegistration | default false | quote }}
+
+---
+# Example Helm values.yaml:
+#
+# clusterName: prod-eu
+# userEmail: devops@company.com
+# backendUrl: https://api.opsctrl.io
+# skipRegistration: false
+# namespace: opsctrl
+
+# Example Helm install command:
+# helm install opsctrl opsctrl/agent \
+#   --namespace opsctrl \
+#   --create-namespace \
+#   --set clusterName=prod-eu \
+#   --set userEmail=devops@company.com
+
+# The daemon will automatically:
+# 1. Generate a unique cluster_id (e.g., clu_abc123)
+# 2. Register with the backend API at startup
+# 3. Save the cluster info locally for future use
+# 4. Continue with normal pod monitoring operations
