@@ -27,6 +27,7 @@ import {
   ALERT_RATE_LIMIT_MAX_MINUTES,
   ALERT_RATE_LIMIT_DEFAULT_MINUTES
 } from '../common/time.constants';
+import { getCurrentContext } from '../core/kube';
 
 /**
  * Comprehensive environment variable validation schema using Joi
@@ -255,12 +256,9 @@ const environmentSchema = Joi.object({
   OPSCTRL_BACKEND_URL: Joi.string()
     .optional()
     .uri({ scheme: ['http', 'https'] })
-    .default('https://api.opsctrl.io')
+    .default('https://api.opsctrl.dev')
     .description('Backend URL for cluster registration'),
 
-  SKIP_CLUSTER_REGISTRATION: Joi.boolean()
-    .default(false)
-    .description('Skip cluster registration on startup'),
 
 }).required();
 
@@ -332,7 +330,6 @@ interface ValidatedConfig {
     clusterName?: string;
     userEmail?: string;
     backendUrl: string;
-    skipRegistration: boolean;
   };
 }
 
@@ -392,6 +389,9 @@ export class WatchdogConfig {
       abortEarly: false,
       convert: true
     });
+
+
+    const currentClusterName = getCurrentContext();
 
     if (error) {
       return {
@@ -457,10 +457,9 @@ export class WatchdogConfig {
         kubeconfigPath: value.KUBECONFIG_PATH || undefined,
       },
       clusterRegistration: {
-        clusterName: value.CLUSTER_NAME || undefined,
+        clusterName: currentClusterName || undefined,
         userEmail: value.USER_EMAIL || undefined,
         backendUrl: value.OPSCTRL_BACKEND_URL,
-        skipRegistration: value.SKIP_CLUSTER_REGISTRATION,
       },
     };
 

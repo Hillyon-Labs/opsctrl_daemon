@@ -23,3 +23,10 @@ export function getCoreV1(): k8s.CoreV1Api {
     printErrorAndExit('Kubernetes client not initialized. Call initKube(context) first.');
   return coreV1;
 }
+
+
+export function getCurrentContext(): string {
+  const kc = new k8s.KubeConfig();
+  kc.loadFromDefault();
+  return kc.getCurrentContext();
+}

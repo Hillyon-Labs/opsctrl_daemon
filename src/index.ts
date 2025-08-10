@@ -42,52 +42,48 @@ async function main() {
     // Load and validate configuration from environment variables
     const config = WatchdogConfig.fromEnvironment();
     
-    // Handle cluster registration if configured
+    // Handle cluster registration (always required)
     const clusterConfig = config.getClusterRegistrationConfig();
     let registrationService: ClusterRegistrationService | null = null;
     
-    if (clusterConfig.skipRegistration) {
-      console.log('ℹ️  Cluster registration disabled (SKIP_CLUSTER_REGISTRATION=true)');
-    } else {
-      // Registration is required
-      if (!clusterConfig.clusterName || !clusterConfig.userEmail) {
-        printErrorAndExit('❌ Cluster registration is required but CLUSTER_NAME and/or USER_EMAIL environment variables are not set. Set SKIP_CLUSTER_REGISTRATION=true to disable registration requirement.', 1);
-      }
-      
-      console.log('🔗 Cluster registration is required before starting monitoring...');
-      
-      registrationService = new ClusterRegistrationService({
-        clusterName: clusterConfig.clusterName,
-        userEmail: clusterConfig.userEmail,
-        version: process.env.npm_package_version || '1.0.0',
-        backendUrl: clusterConfig.backendUrl
-      });
-
-      // Wait until cluster is successfully registered
-      console.log('⏳ Waiting for cluster registration to complete...');
-      const clusterInfo = await waitUntil(
-        async () => {
-          try {
-            const info = await registrationService!.ensureClusterRegistration();
-            return info;
-          } catch (error) {
-            console.log(`🔄 Registration attempt failed: ${error}. Retrying...`);
-            return undefined;
-          }
-        },
-        300000, // 5 minutes timeout
-        10000   // 10 second intervals
-      );
-
-      if (!clusterInfo) {
-        printErrorAndExit('❌ Failed to register cluster within timeout period. Cannot proceed with monitoring.', 1);
-      }
-
-      console.log(`🎯 Cluster registered successfully: ${clusterInfo.cluster_id}`);
-      
-      // Set cluster ID as environment variable for use by watchdog
-      process.env.CLUSTER_ID = clusterInfo.cluster_id;
+    // Registration is always required
+    if (!clusterConfig.clusterName || !clusterConfig.userEmail) {
+      printErrorAndExit(`Cluster registration is required to enable monitoring please check you email to register ${clusterConfig.clusterName}`, 1);
     }
+    
+    console.log('🔗 Cluster registration is required before starting monitoring...');
+    
+    registrationService = new ClusterRegistrationService({
+      clusterName: clusterConfig.clusterName,
+      userEmail: clusterConfig.userEmail,
+      version: process.env.npm_package_version || '1.0.0',
+      backendUrl: clusterConfig.backendUrl
+    });
+
+    // Wait until cluster is successfully registered
+    console.log('⏳ Waiting for cluster registration to complete...');
+    const clusterInfo = await waitUntil(
+      async () => {
+        try {
+          const info = await registrationService!.ensureClusterRegistration();
+          return info;
+        } catch (error) {
+          console.log(`🔄 Registration attempt failed: ${error}. Retrying...`);
+          return undefined;
+        }
+      },
+      300000, // 5 minutes timeout
+      10000   // 10 second intervals
+    );
+
+    if (!clusterInfo) {
+      printErrorAndExit('❌ Failed to register cluster within timeout period. Cannot proceed with monitoring.', 1);
+    }
+
+    console.log(`🎯 Cluster registered successfully: ${clusterInfo.cluster_id}`);
+    
+    // Set cluster ID as environment variable for use by watchdog
+    process.env.CLUSTER_ID = clusterInfo.cluster_id;
     
     console.log('🚀 Initializing monitoring system...');
     
