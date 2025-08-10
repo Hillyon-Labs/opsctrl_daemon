@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  opsctrl-daemon:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: opsctrl-daemon:latest
+    container_name: opsctrl-daemon
+    restart: unless-stopped
+    
+    # Load environment variables from file
+    env_file:
+      - .env.production
+      - .env.local  # Override with local settings if present
+    
+    # Override specific environment variables if needed
+    environment:
+      - NODE_ENV=production
+      - WATCH_NAMESPACES=default,production,staging  # Override for Docker deployment
+      # Add your webhook URL here:
+      # - WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
+
+    # Mount Kubernetes config (adjust path as needed)
+    volumes:
+      - ${HOME}/.kube/config:/app/.kube/config:ro
+      # Alternative: use service account when running in-cluster
+      # - /var/run/secrets/kubernetes.io/serviceaccount:/var/run/secrets/kubernetes.io/serviceaccount:ro
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    
+    # Security settings
+    security_opt:
+      - no-new-privileges:true
+    
+    # Network mode for Kubernetes access
+    network_mode: "host"
+
+  # Optional: Prometheus metrics exporter (if you want to add metrics)
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   container_name: prometheus
+  #   ports:
+  #     - "9090:9090"
+  #   volumes:
+  #     - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro

@@ -146,18 +146,6 @@ export interface DiagnosisCacheConfig {
 }
 
 /**
- * Configuration for opsctrl command integration
- */
-export interface OpsctrlIntegrationConfig {
-  /** Base command to execute (e.g., 'npm', 'node', 'opsctrl') */
-  command: string;
-  /** Arguments to pass to the command */
-  args: string[];
-  /** Working directory for command execution */
-  workingDirectory: string;
-}
-
-/**
  * Configuration for automated diagnosis execution
  */
 export interface DiagnosisConfig {
@@ -167,8 +155,6 @@ export interface DiagnosisConfig {
   timeoutMs: number;
   /** Cache configuration for diagnosis results */
   cacheConfig: DiagnosisCacheConfig;
-  /** Integration configuration for opsctrl tooling */
-  opsctrlIntegration: OpsctrlIntegrationConfig;
 }
 
 /**
@@ -193,6 +179,13 @@ export interface AlertingConfig {
   retryPolicy: AlertRetryPolicy;
   /** Severity levels that should trigger alerts */
   severityFilters: FailureSeverityLevel[];
+
+  rateLimitWindowMinutes: number,
+
+  includeFullManifests: boolean;
+
+  /** Custom template for alert messages (optional) */
+  customTemplate?: string;
 }
 
 /**
