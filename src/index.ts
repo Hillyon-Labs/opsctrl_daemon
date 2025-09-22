@@ -8,6 +8,7 @@ import { KubernetesPodWatchdog } from './core/watchdog';
 import { WatchdogConfig } from './config/watchdog-config';
 import { gracefulShutdown, printErrorAndExit, runHttpBasedHealthCheck, waitUntil } from './utils/utils';
 import { ClusterRegistrationService } from './core/cluster-registration';
+import { getDaemonInfo } from './core/client';
 
 
 
@@ -81,6 +82,17 @@ async function main() {
     }
 
     console.log(`🎯 Cluster registered successfully: ${clusterInfo.cluster_id}`);
+    
+    // Test authentication by calling daemon/me endpoint
+    try {
+      console.log('🔐 Testing authentication...');
+      const daemonInfo = await getDaemonInfo();
+      console.log('✅ Authentication test successful!');
+      console.log(`   Daemon info:`, daemonInfo);
+    } catch (error) {
+      console.warn(`⚠️  Authentication test failed: ${error}`);
+      console.warn(`   Continuing with startup, but API calls may fail.`);
+    }
     
     // Set cluster ID as environment variable for use by watchdog
     process.env.CLUSTER_ID = clusterInfo.cluster_id;

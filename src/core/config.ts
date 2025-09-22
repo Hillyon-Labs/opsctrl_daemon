@@ -6,7 +6,7 @@ import chalk from 'chalk';
 import { printErrorAndExit } from '../utils/utils';
 
 export const CREDENTIALS_JSON_FILE = path.join(os.homedir(), '.opsctrl', 'credentials.json');
-export const DEFAULT_API_URL = process.env.OPSCTRL_API_URL;
+export const DEFAULT_API_URL = process.env.OPSCTRL_BACKEND_URL;
 
 /**
  * Shape of the saved CLI credentials file
