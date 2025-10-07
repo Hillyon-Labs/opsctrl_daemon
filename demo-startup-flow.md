@@ -21,7 +21,7 @@ The behavior is controlled by these environment variables:
 🌍 Environment: production
 🔗 Cluster registration is required before starting monitoring...
 ⏳ Waiting for cluster registration to complete...
-🔄 Registering cluster with backend: https://api.opsctrl.io
+🔄 Registering cluster with backend: https://api.opsctrl.dev
    Cluster ID: clu_abc123def456
    Cluster Name: prod-cluster
    User Email: devops@company.com
