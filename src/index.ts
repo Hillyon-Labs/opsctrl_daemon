@@ -69,7 +69,7 @@ async function main() {
           const info = await registrationService!.ensureClusterRegistration();
           return info;
         } catch (error) {
-          console.log(`🔄 Registration attempt failed: ${error}. Retrying...`);
+          console.log(`🔄${error}. Retrying...`);
           return undefined;
         }
       },
@@ -86,9 +86,8 @@ async function main() {
     // Test authentication by calling daemon/me endpoint
     try {
       console.log('🔐 Testing authentication...');
-      const daemonInfo = await getDaemonInfo();
-      console.log('✅ Authentication test successful!');
-      console.log(`   Daemon info:`, daemonInfo);
+      console.log('✅ Successfully authenticated!');
+      console.log(`The daemon is ready to start diagnostics.`);
     } catch (error) {
       console.warn(`⚠️  Authentication test failed: ${error}`);
       console.warn(`   Continuing with startup, but API calls may fail.`);

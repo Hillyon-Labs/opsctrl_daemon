@@ -61,6 +61,7 @@ export class ClusterRegistrationService {
   private readonly backendUrl: string;
   private readonly DEFAULT_FRONTEND_URL: string;
   private readonly tokenStorage: TokenStorage;
+  private registrationInProgress: boolean = false;
 
   constructor(config: ClusterRegistrationConfig) {
     this.config = config;
@@ -181,24 +182,9 @@ export class ClusterRegistrationService {
       } 
 
       if(results.isClaimed === false && results.userEmail === this.config.userEmail) {
-        const clusterInfo: ClusterInfo = {
-          cluster_id: clusterId,
-          cluster_name: this.config.clusterName,
-          user_email: this.config.userEmail,
-          registered_at: new Date().toISOString(),
-          is_claimed: true,
-          org_id: results.orgId,
-          cluster_foreign_id: results.id
-        };
-
-
-        await this.saveClusterInfo(clusterInfo);
-        await this.removePendingRegistration();
-        
-        // Fetch and store tokens after successful registration
-        console.log(`🚀 About to fetch and store tokens (path 2)...`);
-        await this.fetchAndStoreTokens(clusterInfo);
-        console.log(`🚀 Finished fetching and storing tokens (path 2).`);
+        // Still not claimed, keep waiting
+        console.log(`⏳ Cluster registration still pending user confirmation`);
+        return null;
       }
       
        // Still pending
@@ -249,6 +235,7 @@ export class ClusterRegistrationService {
 
       const result: ClusterRegistrationResponse = response.data;
       
+      
       const clusterInfo: ClusterInfo = {
         cluster_id: clusterId,
         cluster_name: this.config.clusterName,
@@ -278,12 +265,6 @@ export class ClusterRegistrationService {
         console.log(`\n🌐 Complete your cluster registration:`);
         console.log(`   ${this.DEFAULT_FRONTEND_URL}/claim?cluster=${clusterId}`);
         
-        if (result.isClaimed === false) {
-          console.log(`\n⚠️  Registration confirmation required - please check your email or visit the link above.`);
-          console.log(`   The daemon will automatically detect when registration is confirmed.`);
-        } else {
-          console.log(`\n💡 Visit the link above to access your cluster dashboard (optional).`);
-        }
         return result;
       } else {
         // Direct registration (no URL provided)
@@ -338,6 +319,11 @@ export class ClusterRegistrationService {
   }
 
   async ensureClusterRegistration(): Promise<ClusterInfo> {
+    // Prevent concurrent registration attempts
+    if (this.registrationInProgress) {
+      throw new Error('Cluster registration already in progress. Please wait for completion.');
+    }
+
     // First check for completed registration
     const existingClusterInfo = await this.loadClusterInfo();
     
@@ -405,44 +391,45 @@ export class ClusterRegistrationService {
       throw new Error('Cluster registration is pending completion. Please check your email or visit the registration URL.');
     }
 
-    console.log('🚀 No existing cluster registration found. Registering new cluster...');
-    
-    const result = await this.registerCluster();
-    
-    // If registration returned a URL, it's now pending
-    if (result?.isClaimed === false) {
-      throw new Error('Cluster registration initiated. Please check your email or visit the registration URL to complete the process.');
+    try {
+      this.registrationInProgress = true;
+      console.log('🚀 No existing cluster registration found. Registering new cluster...');
+      
+      const result = await this.registerCluster();
+      
+      // If registration returned a pending state, throw error to wait for completion
+      if (result?.isClaimed === false) {
+        throw new Error('Cluster registration initiated. Please check your email or visit the registration URL to complete the process.');
+      }
+      
+      // Direct registration completed - load the saved cluster info
+      const clusterInfo = await this.loadClusterInfo();
+      if (!clusterInfo) {
+        throw new Error('Registration appeared to complete but cluster info was not saved properly.');
+      }
+      
+      return clusterInfo;
+    } finally {
+      this.registrationInProgress = false;
     }
-    
-    // Direct registration completed
-    const clusterInfo = await this.loadClusterInfo();
-    if (!clusterInfo) {
-      throw new Error('Failed to save cluster information after registration');
-    }
-    
-    return clusterInfo;
   }
 
   private async fetchAndStoreTokens(clusterInfo: ClusterInfo): Promise<void> {
     try {
-      console.log(`🔐 Fetching authentication tokens for cluster ${clusterInfo.cluster_foreign_id}...`);
-      console.log(`   Cluster ID: ${clusterInfo.cluster_foreign_id}`);
-      console.log(`   Org ID: ${clusterInfo.org_id || 'none'}`);
-      
-      const tokens = await getUserClusterTokens(clusterInfo.cluster_foreign_id, clusterInfo.org_id || '');
-      console.log(`📋 Received tokens response:`, tokens);
+      console.log(`🔐 Fetching authentication tokens...`);
+
+      const tokens = await getUserClusterTokens(clusterInfo.cluster_foreign_id, clusterInfo.org_id!);
+
       
       if (tokens && tokens.length > 0) {
         const latestToken = tokens[0]; // Assuming the first token is the most recent
-        console.log(`🎫 Latest token:`, latestToken);
+
         
-        // The getUserClusterTokens returns refresh tokens, we need to use one to get access token
-        const refreshTokenValue = latestToken.id; // Based on the backend response structure
-        console.log(`🔄 Using refresh token: ${refreshTokenValue}`);
+        const refreshTokenValue = latestToken.token; // Based on the backend response structure
         
         // Use the refresh token to get access token
-        const authResponse = await refreshClusterToken(refreshTokenValue, clusterInfo.cluster_id);
-        console.log(`🔑 Auth response:`, authResponse);
+        const authResponse = await refreshClusterToken(refreshTokenValue, clusterInfo.cluster_foreign_id);
+
         
         await this.tokenStorage.saveTokens(
           authResponse.accessToken,

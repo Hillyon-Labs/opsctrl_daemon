@@ -107,7 +107,6 @@ export async function refreshClusterToken(
     return response.data;
   } catch (error: any) {
     printErrorAndExit(error.response?.data.message ?? 'Failed to refresh cluster token');
-    throw error;
   }
 }
 
@@ -116,8 +115,6 @@ export async function getUserClusterTokens(
   orgId: string
 ): Promise<any> {
   try {
-    console.log(`📡 Calling getUserClusterTokens with clusterId: ${clusterId}, orgId: ${orgId}`);
-    console.log(`📡 URL: ${DEFAULT_API_URL}/auth/cluster/tokens`);
     
     const response = await axios.get(
       `${DEFAULT_API_URL}/auth/cluster/tokens?clusterId=${clusterId}&orgId=${orgId}`,
@@ -128,7 +125,6 @@ export async function getUserClusterTokens(
       }
     );
 
-    console.log(`📡 getUserClusterTokens response:`, response.data);
     return response.data;
   } catch (error: any) {
     console.error(`📡 getUserClusterTokens error:`, error.response?.data || error.message);
@@ -142,8 +138,6 @@ export async function getDaemonInfo(): Promise<any> {
     if (!token) {
       console.warn('No valid authentication token available. Please ensure cluster is registered.');
     }
-
-    console.log(token);
     
     
 
