@@ -20,6 +20,7 @@ import {
 } from './diagnosis';
 import { initKube } from './kube';
 import { printErrorAndExit } from '../utils/utils';
+import { reportPodFailure } from './client';
 
 
 
@@ -586,6 +587,11 @@ export class KubernetesPodWatchdog extends EventEmitter {
         if (this.shouldSendAlert(failureEvent)) {
           await this.sendStructuredAlert(failureEvent);
         }
+        
+        // Report to backend if severity warrants it
+        if (this.shouldReportToBackend(failureEvent)) {
+          await this.reportFailureToBackend(failureEvent);
+        }
       }
 
     } catch (error) {
@@ -1055,6 +1061,77 @@ export class KubernetesPodWatchdog extends EventEmitter {
     return this.configuration.alerting.severityFilters.includes(
       failureEvent.failure.severity
     );
+  }
+
+  /**
+   * Determine if failure should be reported to backend based on severity
+   * 
+   * @private
+   */
+  private shouldReportToBackend(failureEvent: PodFailureEvent): boolean {
+    // Report medium and above severity failures to backend
+    const reportableSeverities: FailureSeverityLevel[] = ['medium', 'high', 'critical'];
+    return reportableSeverities.includes(failureEvent.failure.severity);
+  }
+
+  /**
+   * Report failure to backend using already collected diagnosis data
+   * 
+   * @private
+   */
+  private async reportFailureToBackend(failureEvent: PodFailureEvent): Promise<void> {
+    try {
+      console.log(`📤 Reporting ${failureEvent.failure.severity} severity failure to backend: ${failureEvent.metadata.podName}`);
+      
+      // Use the already diagnosed data if available
+      if (failureEvent.diagnosis.executed && failureEvent.diagnosis.result) {
+        // Parse the existing diagnosis result to extract components
+        const diagnosisText = failureEvent.diagnosis.result;
+        const lines = diagnosisText.split('\n');
+        
+        // Extract events and logs from existing diagnosis
+        const events: string[] = [];
+        const logs: string[] = [];
+        
+        let inEventsSection = false;
+        let inLogsSection = false;
+        
+        lines.forEach(line => {
+          if (line.includes('Recent Events:')) {
+            inEventsSection = true;
+            inLogsSection = false;
+          } else if (line.includes('Log Analysis:') || line.includes('Container States:')) {
+            inEventsSection = false;
+            inLogsSection = true;
+          } else if (inEventsSection && line.trim().startsWith('•')) {
+            events.push(line.trim().substring(2));
+          } else if (inLogsSection && line.trim()) {
+            logs.push(line.trim());
+          }
+        });
+
+        const failureData = {
+          podName: failureEvent.metadata.podName,
+          namespace: failureEvent.metadata.namespace,
+          logs: logs.length > 0 ? logs : ['Diagnosis completed locally'],
+          events: events.length > 0 ? events : ['No events captured'],
+          phase: failureEvent.podSnapshot.phase
+        };
+
+        const response = await reportPodFailure(failureData);
+        
+        if (response) {
+          console.log(`✅ Successfully reported failure to backend`);
+          if (response.analysis || response.diagnosis) {
+            console.log(`🔍 Backend provided additional analysis`);
+          }
+        }
+      } else {
+        console.log(`⏭️  Skipping backend report - no diagnosis data available`);
+      }
+    } catch (error) {
+      console.error(`❌ Failed to report failure to backend: ${error}`);
+    }
   }
 
   /**
