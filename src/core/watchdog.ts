@@ -12,11 +12,8 @@ import {
   WatchRequest
 } from '../common/interfaces/watchdog.interfaces';
 import { 
-  diagnosePod,
-  runLocalDiagnosis,
-  getPodEvents,
-  getContainerLogs,
-  sanitizeLogs
+  diagnoseStack,
+  getStackDataForBackend
 } from './diagnosis';
 import { initKube } from './kube';
 import { printErrorAndExit } from '../utils/utils';
@@ -752,7 +749,7 @@ export class KubernetesPodWatchdog extends EventEmitter {
    * 
    * @private
    */
-  private checkResourceConstraints(pod: k8s.V1Pod, namespace: string): PodFailureEvent | null {
+  private checkResourceConstraints(_pod: k8s.V1Pod, _namespace: string): PodFailureEvent | null {
     // Implementation would check for resource limits, quotas, etc.
     // This is a placeholder for comprehensive resource analysis
     return null;
@@ -792,7 +789,8 @@ export class KubernetesPodWatchdog extends EventEmitter {
         creationTime: pod.metadata?.creationTimestamp ? 
           new Date(pod.metadata.creationTimestamp) : new Date(),
         labels: pod.metadata?.labels || {},
-        ownerReferences: pod.metadata?.ownerReferences || []
+        ownerReferences: pod.metadata?.ownerReferences || [],
+        containerStates: this.extractContainerStates(pod)
       },
       diagnosis: {
         executed: false,
@@ -961,41 +959,17 @@ export class KubernetesPodWatchdog extends EventEmitter {
   }
 
   /**
-   * Perform diagnosis using internal functions
+   * Perform diagnosis using comprehensive stack analysis
    * 
    * @private
    */
   private async performInternalDiagnosis(podName: string, namespace: string): Promise<string> {
     try {
-      // Get pod status and events
-      const [events, logs] = await Promise.all([
-        getPodEvents(podName, namespace),
-        getContainerLogs(podName, namespace)
-      ]);
-
-      // Get pod information for container states
-      const pod = await this.coreV1Api.readNamespacedPod({ name: podName, namespace });
-      const containerStates = this.extractContainerStates(pod);
-
-      // Sanitize logs
-      const sanitizedLogs = sanitizeLogs(logs);
-
-      // Run local diagnosis
-      const localMatch = runLocalDiagnosis(containerStates, events, sanitizedLogs);
-
-      if (localMatch) {
-        return `🔍 Diagnosis Summary: ${localMatch.diagnosis_summary}\n` +
-               `📊 Confidence: ${(localMatch.confidence_score * 100).toFixed(0)}%\n` +
-               `🏷️  Rule ID: ${localMatch.ruleId}\n\n` +
-               `📋 Recent Events:\n${events.slice(0, 5).map(e => `  • ${e}`).join('\n')}\n\n` +
-               `📄 Log Analysis:\n${sanitizedLogs.slice(-10).map(l => `  ${l}`).join('\n')}`;
-      } else {
-        return `🔍 No specific diagnosis pattern matched.\n` +
-               `📋 Recent Events:\n${events.slice(0, 5).map(e => `  • ${e}`).join('\n')}\n\n` +
-               `📊 Container States:\n${containerStates.map(c => `  • ${c.name}: ${c.state}`).join('\n')}`;
-      }
+      // Use comprehensive stack-based diagnosis for better coverage
+      console.log(`🔍 Starting comprehensive stack analysis for ${podName}...`);
+      return await diagnoseStack(podName, namespace);
     } catch (error) {
-      throw new Error(`Failed to perform internal diagnosis: ${error}`);
+      throw new Error(`Failed to perform stack diagnosis: ${error}`);
     }
   }
 
@@ -1014,8 +988,7 @@ export class KubernetesPodWatchdog extends EventEmitter {
         name: initContainer.name,
         type: 'init',
         state: this.formatContainerState(initContainer),
-        reason: initContainer.state?.waiting?.reason || initContainer.state?.terminated?.reason,
-        message: initContainer.state?.waiting?.message || initContainer.state?.terminated?.message
+        reason: initContainer.state?.waiting?.reason || initContainer.state?.terminated?.reason
       });
     });
 
@@ -1026,8 +999,7 @@ export class KubernetesPodWatchdog extends EventEmitter {
         name: mainContainer.name,
         type: 'main',
         state: this.formatContainerState(mainContainer),
-        reason: mainContainer.state?.waiting?.reason || mainContainer.state?.terminated?.reason,
-        message: mainContainer.state?.waiting?.message || mainContainer.state?.terminated?.message
+        reason: mainContainer.state?.waiting?.reason || mainContainer.state?.terminated?.reason
       });
     });
 
@@ -1041,13 +1013,13 @@ export class KubernetesPodWatchdog extends EventEmitter {
    */
   private formatContainerState(containerStatus: k8s.V1ContainerStatus): string {
     if (containerStatus.state?.running) {
-      return 'Running';
+      return 'running';
     } else if (containerStatus.state?.waiting) {
-      return `Waiting: ${containerStatus.state.waiting.reason || 'Unknown'}`;
+      return 'waiting';
     } else if (containerStatus.state?.terminated) {
-      return `Terminated: ${containerStatus.state.terminated.reason || 'Unknown'} (Exit: ${containerStatus.state.terminated.exitCode})`;
+      return 'terminated';
     }
-    return 'Unknown';
+    return 'unknown';
   }
 
   /**
@@ -1075,7 +1047,7 @@ export class KubernetesPodWatchdog extends EventEmitter {
   }
 
   /**
-   * Report failure to backend using already collected diagnosis data
+   * Report failure to backend with comprehensive stack data aggregated into single pod format
    * 
    * @private
    */
@@ -1083,51 +1055,71 @@ export class KubernetesPodWatchdog extends EventEmitter {
     try {
       console.log(`📤 Reporting ${failureEvent.failure.severity} severity failure to backend: ${failureEvent.metadata.podName}`);
       
-      // Use the already diagnosed data if available
-      if (failureEvent.diagnosis.executed && failureEvent.diagnosis.result) {
-        // Parse the existing diagnosis result to extract components
-        const diagnosisText = failureEvent.diagnosis.result;
-        const lines = diagnosisText.split('\n');
+      // Collect comprehensive stack data for backend reporting
+      const stackData = await getStackDataForBackend(
+        failureEvent.metadata.podName, 
+        failureEvent.metadata.namespace
+      );
+      
+      let aggregatedLogs = stackData.primaryPod.logs;
+      let aggregatedEvents = stackData.primaryPod.events;
+      
+      // If we have stack components, aggregate all their logs and events
+      if (stackData.stackComponents) {
+        const totalComponents = stackData.stackComponents.components.length;
         
-        // Extract events and logs from existing diagnosis
-        const events: string[] = [];
-        const logs: string[] = [];
+        // Aggregate logs from all stack components
+        const allStackLogs: string[] = [];
+        const allStackEvents: string[] = [];
         
-        let inEventsSection = false;
-        let inLogsSection = false;
+        // Add header for stack context (only in logs, not events)
+        allStackLogs.push(`=== STACK ANALYSIS: ${stackData.stackComponents.releaseName} (${totalComponents} components) ===`);
         
-        lines.forEach(line => {
-          if (line.includes('Recent Events:')) {
-            inEventsSection = true;
-            inLogsSection = false;
-          } else if (line.includes('Log Analysis:') || line.includes('Container States:')) {
-            inEventsSection = false;
-            inLogsSection = true;
-          } else if (inEventsSection && line.trim().startsWith('•')) {
-            events.push(line.trim().substring(2));
-          } else if (inLogsSection && line.trim()) {
-            logs.push(line.trim());
+        // Add primary pod data first
+        allStackLogs.push(`--- PRIMARY POD: ${stackData.primaryPod.name} ---`);
+        allStackLogs.push(...stackData.primaryPod.logs);
+        allStackEvents.push(...stackData.primaryPod.events);
+        
+        // Add data from all other stack components
+        stackData.stackComponents.components.forEach(comp => {
+          if (comp.podName !== stackData.primaryPod.name) {
+            allStackLogs.push(`--- COMPONENT: ${comp.podName} ---`);
+            allStackLogs.push(...comp.logs);
+            // Only add actual Kubernetes events, not custom messages
+            allStackEvents.push(...comp.events);
           }
         });
-
-        const failureData = {
-          podName: failureEvent.metadata.podName,
-          namespace: failureEvent.metadata.namespace,
-          logs: logs.length > 0 ? logs : ['Diagnosis completed locally'],
-          events: events.length > 0 ? events : ['No events captured'],
-          phase: failureEvent.podSnapshot.phase
-        };
-
-        const response = await reportPodFailure(failureData);
         
-        if (response) {
-          console.log(`✅ Successfully reported failure to backend`);
-          if (response.analysis || response.diagnosis) {
-            console.log(`🔍 Backend provided additional analysis`);
-          }
-        }
+        aggregatedLogs = allStackLogs;
+        aggregatedEvents = allStackEvents;
+        
+        const totalStackEvents = stackData.stackComponents.components.reduce((sum, comp) => sum + comp.events.length, 0);
+        const totalStackLogs = stackData.stackComponents.components.reduce((sum, comp) => sum + comp.logs.length, 0);
+        console.log(`🔗 Stack analysis: ${totalComponents} components, ${totalStackEvents} total events, ${totalStackLogs} total log lines`);
       } else {
-        console.log(`⏭️  Skipping backend report - no diagnosis data available`);
+        console.log(`📊 Single pod analysis: ${stackData.primaryPod.events.length} events and ${stackData.primaryPod.logs.length} log lines`);
+      }
+
+      // Prepare failure data in existing API format but with comprehensive stack data
+      const failureData = {
+        podName: failureEvent.metadata.podName,
+        namespace: failureEvent.metadata.namespace,
+        logs: aggregatedLogs.length > 0 ? aggregatedLogs : ['No logs available'],
+        events: aggregatedEvents.length > 0 ? aggregatedEvents : ['No events available'],
+        phase: failureEvent.podSnapshot.phase,
+        containerState: {
+          phase: failureEvent.podSnapshot.phase,
+          containerStates: stackData.primaryPod.containerStates || []
+        }
+      };
+
+      const response = await reportPodFailure(failureData);
+      
+      if (response) {
+        console.log(`✅ Successfully reported failure to backend`);
+        if (response.analysis || response.diagnosis) {
+          console.log(`🔍 Backend provided additional analysis`);
+        }
       }
     } catch (error) {
       console.error(`❌ Failed to report failure to backend: ${error}`);

@@ -173,6 +173,9 @@ export async function reportPodFailure(failureData: {
       return null;
     }
 
+    console.log(failureData);
+    
+
     const response = await axios.post(
       `${DEFAULT_API_URL}/daemon/diagnose-pod`,
       failureData,
@@ -181,12 +184,14 @@ export async function reportPodFailure(failureData: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
+        
       }
     );
+    
 
     return response.data;
   } catch (error: any) {
-    console.error(`❌ Failed to report pod failure: ${error.response?.data?.message ?? error.message}`);
+    console.error(`❌ Failed to report pod failure: ${error}`);
     return null;
   }
 }
