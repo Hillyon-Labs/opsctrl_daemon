@@ -156,3 +156,42 @@ export async function getDaemonInfo(): Promise<any> {
     console.error(error.response?.data.message ?? 'Failed to get daemon info');
     }
 }
+
+export async function reportPodFailure(failureData: {
+  podName: string;
+  namespace: string;
+  logs: string[];
+  events?: string[];
+  phase?: string;
+  containerState?: any;
+}): Promise<any> {
+  try {
+    const tokenStorage = new TokenStorage();
+    const token = await tokenStorage.getValidAccessToken();
+    if (!token) {
+      console.warn('No valid authentication token available. Please ensure cluster is registered.');
+      return null;
+    }
+
+    console.log(failureData);
+    
+
+    const response = await axios.post(
+      `${DEFAULT_API_URL}/daemon/diagnose-pod`,
+      failureData,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        
+      }
+    );
+    
+
+    return response.data;
+  } catch (error: any) {
+    console.error(`❌ Failed to report pod failure: ${error}`);
+    return null;
+  }
+}

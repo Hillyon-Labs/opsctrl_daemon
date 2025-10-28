@@ -90,6 +90,8 @@ export interface PodFailureEvent {
     labels: Record<string, string>;
     /** Owner references for tracking controllers */
     ownerReferences: k8s.V1OwnerReference[];
+    /** Container states for diagnosis */
+    containerStates?: any[];
   };
 
   /**

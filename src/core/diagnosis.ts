@@ -3,7 +3,6 @@ import chalk from 'chalk';
 
 import { ContainerStatusSummary } from "../common/interfaces/containerStatus.interface";
 import { LocalDiagnosisResult, MatchLine, PreliminaryCheckOutcome } from "../common/interfaces/rules.interface";
-import { SanitizedPodDiagnostics } from "../common/interfaces/sanitizedpod.interface";
 import { getCoreV1 } from "./kube";
 import { PodStatus } from '../common/interfaces/podstatus.interface';
 import { parseContainerState, printErrorAndExit } from '../utils/utils';
@@ -27,27 +26,11 @@ import rules from '../assets/rules.json'
 export async function diagnosePod(
   podName: string,
   namespace: string,
-  container?: string,
-): Promise<SanitizedPodDiagnostics | any> {
-  const start = performance.now();
-
-  const [status, events, logs] = await Promise.all([
-    getPodStatus(podName, namespace),
-    getPodEvents(podName, namespace),
-    getContainerLogs(podName, namespace, container),
-  ]);
-
-  const sanitizedLogs = sanitizeLogs(logs);
-
-  const localMatch = runLocalDiagnosis(status.containerStates, events, sanitizedLogs);
-
-
-
-  const end = performance.now();
-  const durationSeconds = ((end - start) / 1000).toFixed(1);
-  console.log(`\n⏱ Resolved in ${durationSeconds}s`);
-
-  process.exit(0);
+  _container?: string,
+): Promise<string> {
+  // Always use stack-based diagnosis for better coverage
+  console.log(chalk.blue('🔄 Redirecting to comprehensive stack analysis...\n'));
+  return await diagnoseStack(podName, namespace);
 }
 
 async function getPodStatus(podName: string, namespace: string): Promise<PodStatus> {
@@ -81,7 +64,6 @@ async function getPodStatus(podName: string, namespace: string): Promise<PodStat
     const message = parsedError?.message ?? 'Failed to fetch pod status';
 
     printErrorAndExit(message);
-    throw error; // This will never execute but satisfies TypeScript
   }
 }
 
@@ -115,7 +97,6 @@ export async function getPodEvents(podName: string, namespace: string): Promise<
     console.error(`\n ${chalk.red(`Error fetching events for pod ${podName}`)}`);
 
     printErrorAndExit(`Error fetching events for pod ${podName}`);
-    throw err; // This will never execute but satisfies TypeScript
   }
 }
 
@@ -202,6 +183,7 @@ export async function getContainerLogs(
   }
 }
 
+
 export function runLocalDiagnosis(
   containerStates: ContainerStatusSummary[],
   events: string[],
@@ -247,46 +229,81 @@ export function runLocalDiagnosis(
  * @param namespace
  * @returns
  */
-export async function diagnoseStack(podName: string, namespace: string): Promise<void> {
+export async function diagnoseStack(podName: string, namespace: string): Promise<string> {
   const startTime = performance.now();
 
-  console.log(chalk.blue('\n🔍 Running deep stack analysis...\n'));
+  console.log(chalk.blue('🔍 Running comprehensive stack analysis for backend reporting...\n'));
 
-  // Step 1: Extract Helm release
-  const releaseInfo = await extractHelmRelease(podName, namespace);
+  try {
+    // Step 1: Extract Helm release
+    const releaseInfo = await extractHelmRelease(podName, namespace);
 
-  if (!releaseInfo.releaseName || releaseInfo.confidence < 0.7) {
-    console.log(chalk.yellow('Could not identify Helm release with high confidence.'));
-    console.log(chalk.yellow('Falling back to single pod diagnosis.\n'));
-    return diagnosePod(podName, namespace);
+    if (!releaseInfo.releaseName || releaseInfo.confidence < 0.7) {
+      console.log(chalk.yellow('Could not identify Helm release with high confidence.'));
+      console.log(chalk.yellow('Collecting single pod data for backend reporting.\n'));
+      
+      // Still collect basic pod data but with stack context
+      const [status, events, logs] = await Promise.all([
+        getPodStatus(podName, namespace),
+        getPodEvents(podName, namespace),
+        getContainerLogs(podName, namespace),
+      ]);
+
+      const sanitizedLogs = sanitizeLogs(logs);
+      const duration = ((performance.now() - startTime) / 1000).toFixed(1);
+      
+      const result = `📋 Single Pod Data for ${podName}\n` +
+                    `📊 Events collected: ${events.length}\n` +
+                    `📄 Log lines collected: ${sanitizedLogs.length}\n` +
+                    `📊 Container states: ${status.containerStates.length}\n` +
+                    `⏱  Collection completed in ${duration}s`;
+      
+      console.log(chalk.green(result));
+      return result;
+    }
+
+    console.log(
+      chalk.gray(
+        `📦 Helm release detected: ${chalk.bold(releaseInfo.releaseName)} (${Math.round(
+          releaseInfo.confidence * 100,
+        )}% confidence)`,
+      ),
+    );
+
+    // Step 2: Find all components in the stack
+    const stackPods = await findStackComponents(releaseInfo.releaseName, namespace, podName);
+    console.log(chalk.gray(`🔗 Found ${chalk.bold(stackPods.length)} components in stack\n`));
+
+    // Step 3: Collect data from all components in parallel
+    console.log(chalk.gray('📊 Collecting data from all stack components...'));
+    const stackDiagnostics = await collectStackDiagnostics(stackPods, namespace);
+
+    // Step 4: Create summary for backend
+    const totalEvents = stackDiagnostics.reduce((sum, comp) => sum + comp.events.length, 0);
+    const totalLogs = stackDiagnostics.reduce((sum, comp) => sum + comp.logs.length, 0);
+    const totalContainerStates = stackDiagnostics.reduce((sum, comp) => sum + comp.status.containerStates.length, 0);
+
+    const duration = ((performance.now() - startTime) / 1000).toFixed(1);
+    
+    const result = `📋 Stack Data for Release: ${releaseInfo.releaseName}\n` +
+                  `📦 Components analyzed: ${stackPods.length}\n` +
+                  `📊 Total events collected: ${totalEvents}\n` +
+                  `📄 Total log lines collected: ${totalLogs}\n` +
+                  `📊 Total container states: ${totalContainerStates}\n` +
+                  `🎯 Primary pod: ${podName}\n` +
+                  `⏱  Stack analysis completed in ${duration}s`;
+    
+    console.log(chalk.green('✅ Stack data collection complete:\n'));
+    console.log(result);
+    
+    return result;
+    
+  } catch (error) {
+    const duration = ((performance.now() - startTime) / 1000).toFixed(1);
+    const errorResult = `❌ Failed to collect stack data for ${podName}: ${error}\n⏱  Failed in ${duration}s`;
+    console.log(chalk.red(errorResult));
+    return errorResult;
   }
-
-  console.log(
-    chalk.gray(
-      `📦 Helm release detected: ${chalk.bold(releaseInfo.releaseName)} (${Math.round(
-        releaseInfo.confidence * 100,
-      )}% confidence)`,
-    ),
-  );
-
-  // Step 2: Find all components
-  const stackPods = await findStackComponents(releaseInfo.releaseName, namespace, podName);
-  console.log(chalk.gray(`🔗 Found ${chalk.bold(stackPods.length)} components in stack\n`));
-
-  // Step 3: Collect diagnostics in parallel
-  console.log(chalk.gray('📊 Collecting diagnostics for all components...'));
-  const stackDiagnostics = await collectStackDiagnostics(stackPods, namespace);
-
-  // Step 4: Analyze stack locally
-  console.log(chalk.gray('🧠 Analyzing stack relationships and dependencies...\n'));
-  const analysis = analyzeStackLocally(stackDiagnostics, releaseInfo.releaseName, podName);
-
-  // Display results
-  console.log(chalk.green('✅ Stack Analysis Complete:\n'));
-  console.log(analysis);
-
-  const duration = ((performance.now() - startTime) / 1000).toFixed(1);
-  console.log(chalk.gray(`\n⏱  Completed in ${duration}s`));
 }
 
 /**
@@ -301,7 +318,7 @@ async function extractHelmRelease(podName: string, namespace: string): Promise<{
   try {
     const pod = await coreV1.readNamespacedPod({ name: podName, namespace });
     const labels = pod.metadata?.labels || {};
-    const annotations = pod.metadata?.annotations || {};
+    const _annotations = pod.metadata?.annotations || {};
 
     let releaseName = '';
     let confidence = 0;
@@ -410,7 +427,7 @@ async function collectStackDiagnostics(
   const results = await Promise.all(diagnosticsPromises);
 
   // Show progress
-  results.forEach((r, i) => {
+  results.forEach((r) => {
     const icon = r.logs.length > 1 ? '✓' : '⚠';
     console.log(chalk.gray(`  ${icon} ${r.podName}`));
   });
@@ -512,6 +529,78 @@ function analyzeStackLocally(stackDiagnostics: StackComponent[], releaseName: st
 }
 
 /**
+ * Get comprehensive stack data for backend reporting
+ * Returns all collected data from the stack analysis without local diagnosis
+ */
+export async function getStackDataForBackend(podName: string, namespace: string): Promise<{
+  primaryPod: { name: string; namespace: string; events: string[]; logs: string[]; containerStates: any[] };
+  stackComponents?: { releaseName: string; confidence: number; components: any[] };
+}> {
+  try {
+    // Extract Helm release
+    const releaseInfo = await extractHelmRelease(podName, namespace);
+
+    // Always collect primary pod data
+    const [status, events, logs] = await Promise.all([
+      getPodStatus(podName, namespace),
+      getPodEvents(podName, namespace),
+      getContainerLogs(podName, namespace),
+    ]);
+
+    const sanitizedLogs = sanitizeLogs(logs);
+    const primaryPodData = {
+      name: podName,
+      namespace,
+      events,
+      logs: sanitizedLogs,
+      containerStates: status.containerStates
+    };
+
+    // If we have high confidence Helm release, collect stack data
+    if (releaseInfo.releaseName && releaseInfo.confidence >= 0.7) {
+      const stackPods = await findStackComponents(releaseInfo.releaseName, namespace, podName);
+      const stackDiagnostics = await collectStackDiagnostics(stackPods, namespace);
+
+      return {
+        primaryPod: primaryPodData,
+        stackComponents: {
+          releaseName: releaseInfo.releaseName,
+          confidence: releaseInfo.confidence,
+          components: stackDiagnostics.map(comp => ({
+            podName: comp.podName,
+            status: comp.status,
+            events: comp.events,
+            logs: comp.logs
+          }))
+        }
+      };
+    }
+
+    // Return just primary pod data if no stack detected
+    return { primaryPod: primaryPodData };
+
+  } catch (error) {
+    console.error(`Failed to collect stack data: ${error}`);
+    // Fallback to basic pod data
+    const [status, events, logs] = await Promise.all([
+      getPodStatus(podName, namespace),
+      getPodEvents(podName, namespace),
+      getContainerLogs(podName, namespace),
+    ]);
+
+    return {
+      primaryPod: {
+        name: podName,
+        namespace,
+        events,
+        logs: sanitizeLogs(logs),
+        containerStates: status.containerStates
+      }
+    };
+  }
+}
+
+/**
  * Detects common failure patterns across multiple components
  */
 function detectCommonFailures(failedComponents: StackComponent[]): string[] {
@@ -552,7 +641,7 @@ function detectCommonFailures(failedComponents: StackComponent[]): string[] {
 /**
  * Analyzes potential dependency issues between components
  */
-function analyzeDependencies(stackDiagnostics: StackComponent[], releaseName: string): string[] {
+function analyzeDependencies(stackDiagnostics: StackComponent[], _releaseName: string): string[] {
   const issues: string[] = [];
   
   // Look for database/service dependencies
