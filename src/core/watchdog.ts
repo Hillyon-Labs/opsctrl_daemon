@@ -15,6 +15,7 @@ import {
   diagnoseStack,
   getStackDataForBackend
 } from './diagnosis';
+import { TokenStorage } from './token-storage';
 import { initKube } from './kube';
 import { printErrorAndExit } from '../utils/utils';
 import { reportPodFailure } from './client';
@@ -69,6 +70,16 @@ export class KubernetesPodWatchdog extends EventEmitter {
    * Each namespace gets its own AbortController for independent lifecycle management
    */
   private readonly activeWatchRequests: Map<string, WatchRequest>;
+
+  /**
+   * Token storage for handling authentication
+   */
+  private readonly tokenStorage = new TokenStorage();
+  
+  /**
+   * Interval for proactive token refresh
+   */
+  private tokenRefreshInterval?: NodeJS.Timeout;
 
   /**
    * Connection state tracking for resilience patterns
@@ -227,6 +238,9 @@ export class KubernetesPodWatchdog extends EventEmitter {
 
       console.log(`✅ Monitoring active across ${this.activeWatchRequests.size} namespaces`);
       
+      // Start proactive token refresh monitoring
+      this.startTokenRefreshMonitoring();
+      
       // Emit monitoring started event for external integrations
       this.emit('monitoringStarted', {
         timestamp: new Date(),
@@ -273,6 +287,12 @@ export class KubernetesPodWatchdog extends EventEmitter {
       if (this.cacheCleanupTimer) {
         clearInterval(this.cacheCleanupTimer);
         this.cacheCleanupTimer = null;
+      }
+      
+      // Stop token refresh monitoring
+      if (this.tokenRefreshInterval) {
+        clearInterval(this.tokenRefreshInterval);
+        this.tokenRefreshInterval = undefined;
       }
 
       // Update connection state
@@ -567,8 +587,6 @@ export class KubernetesPodWatchdog extends EventEmitter {
       const failureEvent = await this.analyzeForFailures(podObject, namespace);
       
       if (failureEvent) {
-        console.log(`🚨 Pod failure detected: ${podName} in ${namespace}`);
-        
         // Update metrics
         this.metrics.totalFailuresDetected++;
         
@@ -862,12 +880,11 @@ export class KubernetesPodWatchdog extends EventEmitter {
           cached: true,
           executionTimeMs: Date.now() - startTime
         };
-        console.log(`📋 Using cached diagnosis for ${failureEvent.metadata.podName}`);
+        // Using cached diagnosis
         return;
       }
 
       // Execute fresh diagnosis
-      console.log(`🔍 Executing diagnosis for ${failureEvent.metadata.podName}...`);
       const diagnosisResult = await this.executeInternalDiagnosis(
         failureEvent.metadata.podName,
         failureEvent.metadata.namespace
@@ -966,11 +983,37 @@ export class KubernetesPodWatchdog extends EventEmitter {
   private async performInternalDiagnosis(podName: string, namespace: string): Promise<string> {
     try {
       // Use comprehensive stack-based diagnosis for better coverage
-      console.log(`🔍 Starting comprehensive stack analysis for ${podName}...`);
       return await diagnoseStack(podName, namespace);
     } catch (error) {
       throw new Error(`Failed to perform stack diagnosis: ${error}`);
     }
+  }
+
+  /**
+   * Start proactive token refresh monitoring
+   * 
+   * @private
+   */
+  private startTokenRefreshMonitoring(): void {
+    // Check token validity every 15 minutes
+    const checkInterval = 15 * 60 * 1000; // 15 minutes
+    
+    this.tokenRefreshInterval = setInterval(async () => {
+      try {
+        const isValid = await this.tokenStorage.isTokenValid();
+        if (!isValid) {
+          console.log('🔄 Proactively refreshing tokens...');
+          const refreshed = await this.tokenStorage.refreshTokens();
+          if (!refreshed) {
+            console.warn('⚠️  Proactive token refresh failed, debugging...');
+            await this.tokenStorage.debugTokenStatus();
+          }
+        }
+      } catch (error) {
+        console.warn('⚠️  Token refresh check failed:', error);
+        await this.tokenStorage.debugTokenStatus();
+      }
+    }, checkInterval);
   }
 
   /**
@@ -1053,7 +1096,7 @@ export class KubernetesPodWatchdog extends EventEmitter {
    */
   private async reportFailureToBackend(failureEvent: PodFailureEvent): Promise<void> {
     try {
-      console.log(`📤 Reporting ${failureEvent.failure.severity} severity failure to backend: ${failureEvent.metadata.podName}`);
+      // Collecting stack data for backend reporting
       
       // Collect comprehensive stack data for backend reporting
       const stackData = await getStackDataForBackend(
@@ -1093,11 +1136,7 @@ export class KubernetesPodWatchdog extends EventEmitter {
         aggregatedLogs = allStackLogs;
         aggregatedEvents = allStackEvents;
         
-        const totalStackEvents = stackData.stackComponents.components.reduce((sum, comp) => sum + comp.events.length, 0);
-        const totalStackLogs = stackData.stackComponents.components.reduce((sum, comp) => sum + comp.logs.length, 0);
-        console.log(`🔗 Stack analysis: ${totalComponents} components, ${totalStackEvents} total events, ${totalStackLogs} total log lines`);
-      } else {
-        console.log(`📊 Single pod analysis: ${stackData.primaryPod.events.length} events and ${stackData.primaryPod.logs.length} log lines`);
+        // Stack data collected - no verbose logging
       }
 
       // Prepare failure data in existing API format but with comprehensive stack data
@@ -1113,14 +1152,9 @@ export class KubernetesPodWatchdog extends EventEmitter {
         }
       };
 
-      const response = await reportPodFailure(failureData);
+      await reportPodFailure(failureData);
       
-      if (response) {
-        console.log(`✅ Successfully reported failure to backend`);
-        if (response.analysis || response.diagnosis) {
-          console.log(`🔍 Backend provided additional analysis`);
-        }
-      }
+      // Backend reporting completed
     } catch (error) {
       console.error(`❌ Failed to report failure to backend: ${error}`);
     }
@@ -1169,7 +1203,6 @@ export class KubernetesPodWatchdog extends EventEmitter {
         });
 
         if (response.ok) {
-          console.log(`📤 Alert sent successfully (attempt ${attempt})`);
           return;
         } else {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
