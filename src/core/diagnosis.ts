@@ -232,17 +232,12 @@ export function runLocalDiagnosis(
 export async function diagnoseStack(podName: string, namespace: string): Promise<string> {
   const startTime = performance.now();
 
-  console.log(chalk.blue('🔍 Running comprehensive stack analysis for backend reporting...\n'));
-
   try {
     // Step 1: Extract Helm release
     const releaseInfo = await extractHelmRelease(podName, namespace);
 
     if (!releaseInfo.releaseName || releaseInfo.confidence < 0.7) {
-      console.log(chalk.yellow('Could not identify Helm release with high confidence.'));
-      console.log(chalk.yellow('Collecting single pod data for backend reporting.\n'));
-      
-      // Still collect basic pod data but with stack context
+      // Single pod analysis
       const [status, events, logs] = await Promise.all([
         getPodStatus(podName, namespace),
         getPodEvents(podName, namespace),
@@ -252,56 +247,29 @@ export async function diagnoseStack(podName: string, namespace: string): Promise
       const sanitizedLogs = sanitizeLogs(logs);
       const duration = ((performance.now() - startTime) / 1000).toFixed(1);
       
-      const result = `📋 Single Pod Data for ${podName}\n` +
-                    `📊 Events collected: ${events.length}\n` +
-                    `📄 Log lines collected: ${sanitizedLogs.length}\n` +
-                    `📊 Container states: ${status.containerStates.length}\n` +
-                    `⏱  Collection completed in ${duration}s`;
-      
-      console.log(chalk.green(result));
+      const result = `Single pod analysis: ${events.length} events, ${sanitizedLogs.length} logs (${duration}s)`;
       return result;
     }
 
-    console.log(
-      chalk.gray(
-        `📦 Helm release detected: ${chalk.bold(releaseInfo.releaseName)} (${Math.round(
-          releaseInfo.confidence * 100,
-        )}% confidence)`,
-      ),
-    );
-
     // Step 2: Find all components in the stack
     const stackPods = await findStackComponents(releaseInfo.releaseName, namespace, podName);
-    console.log(chalk.gray(`🔗 Found ${chalk.bold(stackPods.length)} components in stack\n`));
 
     // Step 3: Collect data from all components in parallel
-    console.log(chalk.gray('📊 Collecting data from all stack components...'));
     const stackDiagnostics = await collectStackDiagnostics(stackPods, namespace);
 
     // Step 4: Create summary for backend
     const totalEvents = stackDiagnostics.reduce((sum, comp) => sum + comp.events.length, 0);
     const totalLogs = stackDiagnostics.reduce((sum, comp) => sum + comp.logs.length, 0);
-    const totalContainerStates = stackDiagnostics.reduce((sum, comp) => sum + comp.status.containerStates.length, 0);
 
     const duration = ((performance.now() - startTime) / 1000).toFixed(1);
     
-    const result = `📋 Stack Data for Release: ${releaseInfo.releaseName}\n` +
-                  `📦 Components analyzed: ${stackPods.length}\n` +
-                  `📊 Total events collected: ${totalEvents}\n` +
-                  `📄 Total log lines collected: ${totalLogs}\n` +
-                  `📊 Total container states: ${totalContainerStates}\n` +
-                  `🎯 Primary pod: ${podName}\n` +
-                  `⏱  Stack analysis completed in ${duration}s`;
-    
-    console.log(chalk.green('✅ Stack data collection complete:\n'));
-    console.log(result);
+    const result = `Stack analysis: ${releaseInfo.releaseName} - ${stackPods.length} components, ${totalEvents} events, ${totalLogs} logs (${duration}s)`;
     
     return result;
     
   } catch (error) {
     const duration = ((performance.now() - startTime) / 1000).toFixed(1);
-    const errorResult = `❌ Failed to collect stack data for ${podName}: ${error}\n⏱  Failed in ${duration}s`;
-    console.log(chalk.red(errorResult));
+    const errorResult = `Failed to collect data for ${podName}: ${error} (${duration}s)`;
     return errorResult;
   }
 }
@@ -348,11 +316,8 @@ async function extractHelmRelease(podName: string, namespace: string): Promise<{
       }
     }
 
-    console.log(`🔍 Helm release detection: ${releaseName} (confidence: ${Math.round(confidence * 100)}%)`);
-    
     return { releaseName, confidence };
   } catch (error) {
-    console.error('Failed to extract Helm release:', error);
     return { releaseName: '', confidence: 0 };
   }
 }
@@ -414,7 +379,7 @@ async function collectStackDiagnostics(
         logs: sanitizeLogs(logs),
       };
     } catch (error) {
-      console.warn(chalk.yellow(`⚠️  Failed to collect diagnostics for ${podName}`));
+      // Silently handle failures and return minimal data
       return {
         podName,
         status: { phase: 'Unknown', containerStates: [] },
@@ -425,13 +390,6 @@ async function collectStackDiagnostics(
   });
 
   const results = await Promise.all(diagnosticsPromises);
-
-  // Show progress
-  results.forEach((r) => {
-    const icon = r.logs.length > 1 ? '✓' : '⚠';
-    console.log(chalk.gray(`  ${icon} ${r.podName}`));
-  });
-
   return results;
 }
 

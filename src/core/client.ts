@@ -134,27 +134,23 @@ export async function getUserClusterTokens(
 export async function getDaemonInfo(): Promise<any> {
   try {
     const tokenStorage = new TokenStorage();
-    const token = await tokenStorage.getValidAccessToken();
-    if (!token) {
-      console.warn('No valid authentication token available. Please ensure cluster is registered.');
-    }
     
-    
-
-    const response = await axios.get(
-      `${DEFAULT_API_URL}/daemon/me`,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-      }
-    );
-
-    return response.data;
+    return await tokenStorage.makeAuthenticatedRequest(async (token) => {
+      const response = await axios.get(
+        `${DEFAULT_API_URL}/daemon/me`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      return response.data;
+    });
   } catch (error: any) {    
     console.error(error.response?.data.message ?? 'Failed to get daemon info');
-    }
+    return null;
+  }
 }
 
 export async function reportPodFailure(failureData: {
@@ -167,31 +163,22 @@ export async function reportPodFailure(failureData: {
 }): Promise<any> {
   try {
     const tokenStorage = new TokenStorage();
-    const token = await tokenStorage.getValidAccessToken();
-    if (!token) {
-      console.warn('No valid authentication token available. Please ensure cluster is registered.');
-      return null;
-    }
-
-    console.log(failureData);
     
-
-    const response = await axios.post(
-      `${DEFAULT_API_URL}/daemon/diagnose-pod`,
-      failureData,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        
-      }
-    );
-    
-
-    return response.data;
+    return await tokenStorage.makeAuthenticatedRequest(async (token) => {
+      const response = await axios.post(
+        `${DEFAULT_API_URL}/daemon/diagnose-pod`,
+        failureData,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      return response.data;
+    });
   } catch (error: any) {
-    console.error(`❌ Failed to report pod failure: ${error}`);
+    console.error(`❌ Failed to report pod failure: ${error.response?.data?.message || error.message}`);
     return null;
   }
 }
