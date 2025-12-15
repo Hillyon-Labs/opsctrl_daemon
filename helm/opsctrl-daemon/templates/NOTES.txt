@@ -1,0 +1,92 @@
+
+================================================================================
+                         OpsCtrl Daemon Deployed!
+================================================================================
+
+Release Name: {{ .Release.Name }}
+Namespace:    {{ .Release.Namespace }}
+Replicas:     {{ .Values.replicaCount }}
+
+--------------------------------------------------------------------------------
+GETTING STARTED
+--------------------------------------------------------------------------------
+
+1. Check the deployment status:
+
+   kubectl get pods -n {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "opsctrl-daemon.name" . }},app.kubernetes.io/instance={{ .Release.Name }}"
+
+2. View the daemon logs:
+
+   kubectl logs -n {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "opsctrl-daemon.name" . }}" -f
+
+3. Check the health endpoint:
+
+   kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "opsctrl-daemon.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+   curl http://localhost:{{ .Values.service.port }}/health
+
+--------------------------------------------------------------------------------
+CONFIGURATION
+--------------------------------------------------------------------------------
+
+{{- if not .Values.monitoring.watchNamespaces }}
+
+WARNING: WATCH_NAMESPACES is not configured!
+The daemon needs at least one namespace to monitor. Update your values:
+
+  monitoring:
+    watchNamespaces: "default,my-app"
+
+{{- else }}
+
+Monitored Namespaces: {{ .Values.monitoring.watchNamespaces }}
+
+{{- end }}
+
+{{- if not .Values.secrets.existingSecret }}
+
+WARNING: No secret configured!
+You must create a Kubernetes Secret with sensitive configuration:
+
+  kubectl create secret generic opsctrl-daemon-secrets \
+    --namespace {{ .Release.Namespace }} \
+    --from-literal=OPSCTRL_BACKEND_URL="https://your-backend-url" \
+    --from-literal=WEBHOOK_URL="https://hooks.slack.com/services/..."
+
+Then set secrets.existingSecret in your values:
+
+  secrets:
+    existingSecret: "opsctrl-daemon-secrets"
+
+{{- else }}
+
+Secret: {{ .Values.secrets.existingSecret }}
+
+{{- end }}
+
+{{- if .Values.clusterRegistration.clusterName }}
+
+Cluster Name: {{ .Values.clusterRegistration.clusterName }}
+
+{{- end }}
+
+--------------------------------------------------------------------------------
+USEFUL COMMANDS
+--------------------------------------------------------------------------------
+
+# Add the chart repository (if not already added):
+helm repo add opsctrl https://charts.opsctrl.dev
+helm repo update
+
+# Upgrade the release:
+helm upgrade {{ .Release.Name }} opsctrl/opsctrl-daemon -n {{ .Release.Namespace }} -f values.yaml
+
+# Uninstall the release:
+helm uninstall {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+# View all resources:
+kubectl get all -n {{ .Release.Namespace }} -l "app.kubernetes.io/instance={{ .Release.Name }}"
+
+================================================================================
+Chart Repository: https://charts.opsctrl.dev
+Documentation:    https://github.com/Hillyon-Labs/opsctrl_daemon
+================================================================================

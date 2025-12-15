@@ -1,93 +1,235 @@
-Here’s a production-ready, developer-focused `README.md` for the **Opsctrl Daemon** repo — clear, technical, and compelling without sounding hypey:
+# OpsCtrl Daemon
 
----
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Docker](https://img.shields.io/docker/v/opsctrl/daemon?label=Docker&sort=semver)](https://hub.docker.com/r/opsctrl/daemon)
+[![Helm](https://img.shields.io/badge/Helm-charts.opsctrl.dev-blue)](https://charts.opsctrl.dev)
 
-````md
-# Opsctrl Daemon
+Kubernetes pod monitoring daemon with automated failure detection, diagnosis, and Slack alerting.
 
-**Your Kubernetes cluster’s missing brain.**  
-The Opsctrl daemon installs once and continuously monitors your workloads for failures — then posts detailed diagnoses and fixes directly to Slack.
+## Overview
 
-## 🚀 What It Does
+OpsCtrl Daemon watches your Kubernetes cluster for pod failures and automatically diagnoses root causes using LLM-powered analysis. When issues occur, it sends detailed alerts with remediation suggestions directly to Slack.
 
-When something breaks in your cluster, Opsctrl tells you:
+**Key Features:**
+- Real-time detection of CrashLoopBackOff, OOMKill, ImagePull failures, and more
+- AI-powered root cause analysis with actionable fix suggestions
+- Slack integration for instant incident notifications
+- Read-only operation - never executes into containers or accesses secrets
+- Lightweight single-replica deployment
 
-- **What broke** (pod crash, stuck rollout, probe failure, OOMKill)
-- **Why it broke** (misconfigured resources, upstream errors, bad Helm changes)
-- **How to fix it** (suggested remediations, config updates, next steps)
+## Table of Contents
 
-All delivered in plain English, straight to your Slack.
+- [Installation](#installation)
+  - [Helm (Recommended)](#helm-recommended)
+  - [Kubectl](#kubectl)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [Architecture](#architecture)
+- [Development](#development)
+- [Contributing](#contributing)
+- [License](#license)
 
-No dashboards. No digging through logs.  
-Just answers — where your team actually works.
+## Installation
 
-## 🔧 How It Works
+### Prerequisites
 
-- Deployed as a lightweight Deployment or DaemonSet
-- Uses the Kubernetes API to watch pod states, events, and Helm metadata
-- Triggers diagnosis automatically when failures occur
-- Sends structured metadata to the Opsctrl backend for LLM-powered analysis
-- Posts root cause + suggested fix to your configured Slack channel
+- Kubernetes 1.21+
+- Helm 3.x (for Helm installation)
+- Slack webhook URL (optional, for alerts)
 
-## ⚡️ Quickstart
+### Helm (Recommended)
 
 ```bash
-kubectl apply -f https://get.opsctrl.dev/latest.yaml
-````
+# Add the OpsCtrl Helm repository
+helm repo add opsctrl https://charts.opsctrl.dev
+helm repo update
 
-> Requires Kubernetes 1.21+, cluster read access (pods, events, deployments), and a Slack webhook URL.
+# Create a secret with sensitive configuration
+kubectl create secret generic opsctrl-daemon-secrets \
+  --namespace monitoring \
+  --from-literal=OPSCTRL_BACKEND_URL="https://api.opsctrl.dev" \
+  --from-literal=WEBHOOK_URL="https://hooks.slack.com/services/..."
 
-## 🛡 RBAC & Security
+# Install the chart
+helm install opsctrl-daemon opsctrl/opsctrl-daemon \
+  --namespace monitoring \
+  --create-namespace \
+  --set monitoring.watchNamespaces="default,production" \
+  --set clusterRegistration.clusterName="my-cluster" \
+  --set secrets.existingSecret="opsctrl-daemon-secrets"
+```
 
-The daemon:
+See [values.yaml](helm/opsctrl-daemon/values.yaml) for all configuration options.
 
-* Runs read-only
-* Requires access to:
+### Kubectl
 
-  * Pods
-  * Events
-  * Deployments
-  * (Optional) Helm secrets
-* Does **not** exec into containers, access secrets/configMaps, or send logs externally
+```bash
+# Apply the manifests directly
+kubectl apply -f https://raw.githubusercontent.com/Hillyon-Labs/opsctrl_daemon/main/k8s-deployment.yaml
+```
 
-Full [RBAC manifest here](./manifests/rbac.yaml)
+## Configuration
 
-## 📥 Slack Integration
+### Environment Variables
 
-1. Generate a Slack webhook: [https://api.slack.com/messaging/webhooks](https://api.slack.com/messaging/webhooks)
-2. Pass it to the daemon via Helm values or env var:
+| Variable | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `WATCH_NAMESPACES` | Comma-separated namespaces to monitor | Yes | - |
+| `OPSCTRL_BACKEND_URL` | Backend API URL | Yes | - |
+| `CLUSTER_NAME` | Unique cluster identifier | No | - |
+| `WEBHOOK_URL` | Slack webhook URL for alerts | No | - |
+| `MIN_RESTART_THRESHOLD` | Container restarts before alerting | No | `3` |
+| `LOG_LEVEL` | Logging verbosity (error, warn, info, debug) | No | `info` |
 
-   ```bash
-   export SLACK_WEBHOOK=https://hooks.slack.com/services/...
-   ```
-3. You’ll receive incident alerts like:
+### Monitored Failure Types
 
-   > 🛑 CrashLoopBackOff in `orders-api`
-   > 🧠 Root cause: readiness probe failing on `/healthz`
-   > 🔧 Fix: kubectl patch deployment payments-api \
-  -n production \
+| Failure Type | Description |
+|--------------|-------------|
+| `CrashLoopBackOff` | Container repeatedly crashing |
+| `OOMKilled` | Out of memory termination |
+| `ImagePullBackOff` | Failed to pull container image |
+| `Pending` | Pod stuck in pending state |
+| `Failed` | Pod entered failed phase |
+
+## Usage
+
+### Viewing Logs
+
+```bash
+kubectl logs -n monitoring -l app.kubernetes.io/name=opsctrl-daemon -f
+```
+
+### Health Check
+
+```bash
+kubectl port-forward -n monitoring svc/opsctrl-daemon 3000:3000
+curl http://localhost:3000/health
+```
+
+### Example Slack Alert
+
+When a failure is detected, you'll receive alerts like:
+
+```
+🛑 CrashLoopBackOff in orders-api (production)
+
+Root Cause: Readiness probe failing on /healthz - connection timeout after 1s
+
+Suggested Fix:
+kubectl patch deployment orders-api -n production \
   --type='json' \
   -p='[{"op":"replace","path":"/spec/template/spec/containers/0/readinessProbe/timeoutSeconds","value":5}]'
+```
 
-## 💡 Why Open Source?
+## Architecture
 
-Transparency. Trust. Customization.
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Kubernetes Cluster                       │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐     │
+│  │   Pod A     │    │   Pod B     │    │   Pod C     │     │
+│  └─────────────┘    └─────────────┘    └─────────────┘     │
+│         │                 │                  │              │
+│         └────────────────┼──────────────────┘              │
+│                          ▼                                  │
+│                 ┌─────────────────┐                        │
+│                 │ OpsCtrl Daemon  │ ◄── Watch API          │
+│                 └────────┬────────┘                        │
+└──────────────────────────┼──────────────────────────────────┘
+                           │
+                           ▼
+                  ┌─────────────────┐
+                  │ OpsCtrl Backend │ ◄── LLM Analysis
+                  └────────┬────────┘
+                           │
+                           ▼
+                  ┌─────────────────┐
+                  │     Slack       │
+                  └─────────────────┘
+```
 
-You can audit, fork, or self-host this daemon — but our full diagnosis pipeline (including the LLM-based analysis and Slack formatting) runs on the Opsctrl backend. To unlock that, head to [opsctrl.dev](https://opsctrl.dev).
+## Development
 
-## 🧪 Local Development
+### Prerequisites
+
+- Node.js 18+
+- npm
+- Access to a Kubernetes cluster (local or remote)
+
+### Setup
 
 ```bash
+# Clone the repository
+git clone https://github.com/Hillyon-Labs/opsctrl_daemon.git
+cd opsctrl_daemon
+
+# Install dependencies
 npm install
+
+# Copy environment template
+cp .env.example .env
+# Edit .env with your configuration
+
+# Run in development mode
 npm run dev
 ```
 
-You’ll need a working KUBECONFIG and access to a dev cluster. The default watcher observes all namespaces unless scoped.
+### Testing
 
-## 📄 License
+```bash
+# Run tests
+npm test
 
-MIT 
+# Run tests with coverage
+npm run test:coverage
+```
+
+### Building
+
+```bash
+# Build TypeScript
+npm run build
+
+# Build Docker image
+docker build -t opsctrl/daemon:local .
+```
+
+## RBAC & Security
+
+The daemon operates in read-only mode and requires minimal permissions:
+
+| Resource | Verbs | Purpose |
+|----------|-------|---------|
+| `pods` | get, list, watch | Monitor pod status |
+| `namespaces` | get, list, watch | Namespace filtering |
+| `events` | get, list, watch, create | Failure detection |
+| `leases` | get, list, watch, create, update, patch | Leader election |
+
+The daemon does **not**:
+- Execute into containers
+- Access Secrets or ConfigMaps
+- Modify any workloads
+- Send container logs externally
+
+## Contributing
+
+Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) before submitting a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## Support
+
+- [GitHub Issues](https://github.com/Hillyon-Labs/opsctrl_daemon/issues) - Bug reports and feature requests
+- [Documentation](https://github.com/Hillyon-Labs/opsctrl_daemon#readme) - Full documentation
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
-Want to contribute? Open an issue or ping us in [#opsctrl on Kubernetes discord](https://discord.gg/WPvXpRFb).
+Built with care by [Hillyon Labs](https://github.com/Hillyon-Labs)
