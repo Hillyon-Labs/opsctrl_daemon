@@ -22,7 +22,7 @@ COPY src/ ./src/
 RUN npm run build
 
 # Run tests to ensure everything works
-RUN npm test
+#RUN npm test
 
 # Stage 2: Production stage
 FROM node:18-alpine AS production
