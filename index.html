@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpsCtrl Helm Charts</title>
+    <meta name="description" content="Helm chart repository for OpsCtrl - Kubernetes Pod monitoring and failure detection with automated diagnosis">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0b;
+            --bg-secondary: #111113;
+            --bg-tertiary: #1a1a1d;
+            --text-primary: #fafafa;
+            --text-secondary: #a1a1aa;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --border: #27272a;
+            --success: #22c55e;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        header {
+            padding: 48px 0 32px;
+            text-align: center;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .logo {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 16px;
+        }
+
+        h1 {
+            font-size: 40px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, var(--text-primary) 0%, var(--text-secondary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .tagline {
+            color: var(--text-secondary);
+            font-size: 18px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        main {
+            padding: 48px 0;
+        }
+
+        section {
+            margin-bottom: 48px;
+        }
+
+        h2 {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-bottom: 16px;
+        }
+
+        .install-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+        }
+
+        .code-block {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin: 12px 0;
+            position: relative;
+            overflow-x: auto;
+        }
+
+        .code-block code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            color: var(--text-primary);
+            white-space: pre;
+        }
+
+        .code-block .comment {
+            color: var(--text-secondary);
+        }
+
+        .code-block .command {
+            color: var(--success);
+        }
+
+        .copy-btn {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .copy-btn:hover {
+            background: var(--border);
+            color: var(--text-primary);
+        }
+
+        .charts-list {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .chart-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: border-color 0.2s;
+        }
+
+        .chart-card:hover {
+            border-color: var(--accent);
+        }
+
+        .chart-info h3 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .chart-info p {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .chart-meta {
+            text-align: right;
+        }
+
+        .version-badge {
+            background: var(--accent);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .chart-links {
+            margin-top: 8px;
+            display: flex;
+            gap: 16px;
+            justify-content: flex-end;
+        }
+
+        .chart-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 13px;
+            transition: color 0.2s;
+        }
+
+        .chart-links a:hover {
+            color: var(--accent);
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 16px;
+        }
+
+        .feature {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .feature-icon {
+            font-size: 24px;
+            margin-bottom: 12px;
+        }
+
+        .feature h3 {
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+
+        .feature p {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        footer {
+            border-top: 1px solid var(--border);
+            padding: 32px 0;
+            text-align: center;
+        }
+
+        footer p {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        footer a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 640px) {
+            h1 {
+                font-size: 28px;
+            }
+
+            .chart-card {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 16px;
+            }
+
+            .chart-meta {
+                text-align: left;
+            }
+
+            .chart-links {
+                justify-content: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div class="logo">OpsCtrl</div>
+            <h1>Helm Charts</h1>
+            <p class="tagline">Official Helm chart repository for OpsCtrl - Kubernetes Pod monitoring and failure detection with automated diagnosis</p>
+        </div>
+    </header>
+
+    <main class="container">
+        <section>
+            <h2>Quick Start</h2>
+            <div class="install-card">
+                <div class="code-block">
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    <code><span class="comment"># Add the repository</span>
+<span class="command">helm repo add opsctrl https://charts.opsctrl.dev</span>
+
+<span class="comment"># Update repositories</span>
+<span class="command">helm repo update</span>
+
+<span class="comment"># Install the chart</span>
+<span class="command">helm install opsctrl-daemon opsctrl/opsctrl-daemon</span></code>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Available Charts</h2>
+            <div class="charts-list">
+                <div class="chart-card">
+                    <div class="chart-info">
+                        <h3>opsctrl-daemon</h3>
+                        <p>Kubernetes Pod monitoring daemon with crash detection and Slack alerting</p>
+                    </div>
+                    <div class="chart-meta">
+                        <span class="version-badge">Latest</span>
+                        <div class="chart-links">
+                            <a href="https://github.com/Hillyon-Labs/opsctrl_daemon">GitHub</a>
+                            <a href="https://hub.docker.com/r/opsctrl/daemon">Docker Hub</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>Features</h2>
+            <div class="features">
+                <div class="feature">
+                    <div class="feature-icon">🔍</div>
+                    <h3>CrashLoop Detection</h3>
+                    <p>Automatically detects CrashLoopBackOff and other pod failures in real-time</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🤖</div>
+                    <h3>AI Diagnosis</h3>
+                    <p>LLM-powered root cause analysis with actionable remediation suggestions</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">💬</div>
+                    <h3>Slack Alerts</h3>
+                    <p>Instant notifications to Slack with detailed failure context</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🔒</div>
+                    <h3>Read-Only</h3>
+                    <p>Secure by design - never executes into containers or accesses secrets</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>
+                Built by <a href="https://github.com/Hillyon-Labs">Hillyon Labs</a> ·
+                <a href="https://github.com/Hillyon-Labs/opsctrl_daemon">Source Code</a> ·
+                <a href="https://github.com/Hillyon-Labs/opsctrl_daemon/issues">Report Issue</a>
+            </p>
+        </div>
+    </footer>
+
+    <script>
+        function copyCode(btn) {
+            const codeBlock = btn.parentElement;
+            const code = codeBlock.querySelector('code').innerText;
+            navigator.clipboard.writeText(code).then(() => {
+                btn.textContent = 'Copied!';
+                setTimeout(() => btn.textContent = 'Copy', 2000);
+            });
+        }
+    </script>
+</body>
+</html>
