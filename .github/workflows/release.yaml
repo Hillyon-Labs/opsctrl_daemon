@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 env:
   REGISTRY: docker.io
@@ -111,6 +111,7 @@ jobs:
         with:
           charts_dir: helm
           config: .github/cr.yaml
+          packages_with_index: true
         env:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
 
