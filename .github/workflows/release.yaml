@@ -74,6 +74,7 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             VERSION=${{ needs.prepare.outputs.version }}
+            OPSCTRL_BACKEND_URL=${{ secrets.OPSCTRL_BACKEND_URL }}
 
   # Release Helm chart
   helm:
