@@ -1,0 +1,249 @@
+# Default values for opsctrl-daemon
+# This is a YAML-formatted file.
+
+# -- Number of replicas (keep at 1 to avoid duplicate error reporting)
+replicaCount: 1
+
+image:
+  # -- Container image repository
+  repository: opsctrl/daemon
+  # -- Image pull policy
+  pullPolicy: Always
+  # -- Overrides the image tag (default is chart appVersion)
+  tag: ""
+
+# -- Image pull secrets for private registries
+imagePullSecrets: []
+# - name: my-registry-secret
+
+# -- Override the name of the chart
+nameOverride: ""
+# -- Override the full name of the chart
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Specifies whether a service account should be created
+  create: true
+  # -- Annotations to add to the service account
+  annotations: {}
+  # -- The name of the service account to use (auto-generated if not set)
+  name: ""
+
+rbac:
+  # -- Specifies whether RBAC resources should be created
+  create: true
+
+# -- Pod annotations
+podAnnotations: {}
+
+# -- Pod labels
+podLabels: {}
+
+podSecurityContext:
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+  runAsNonRoot: true
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1001
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  # -- Service type
+  type: ClusterIP
+  # -- Service port for health checks
+  port: 3000
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 256Mi
+
+# -- Node selector for pod scheduling
+nodeSelector: {}
+
+# -- Tolerations for pod scheduling (e.g., to run on control-plane nodes)
+tolerations: []
+# - key: node-role.kubernetes.io/control-plane
+#   operator: Exists
+#   effect: NoSchedule
+
+# -- Affinity rules for pod scheduling
+affinity: {}
+
+# Deployment strategy
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 0
+    maxSurge: 1
+
+# Liveness probe configuration
+livenessProbe:
+  enabled: true
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 3
+
+# Readiness probe configuration
+readinessProbe:
+  enabled: true
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 15
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# =============================================================================
+# Application Configuration
+# =============================================================================
+
+config:
+  # -- Application environment (development, production, staging, test)
+  nodeEnv: production
+  # -- Logging level (error, warn, info, debug, trace)
+  logLevel: info
+
+# -----------------------------------------------------------------------------
+# Cluster Registration Configuration
+# -----------------------------------------------------------------------------
+clusterRegistration:
+  # -- Unique cluster identifier (required for registration)
+  clusterName: ""
+  # -- User email for cluster registration
+  userEmail: ""
+
+# -----------------------------------------------------------------------------
+# Monitoring Configuration
+# -----------------------------------------------------------------------------
+monitoring:
+  # -- Comma-separated namespaces to monitor (REQUIRED)
+  watchNamespaces: ""
+  # -- Comma-separated namespaces to exclude from monitoring
+  excludeNamespaces: "kube-system,kube-public,kube-node-lease"
+  # -- Minimum container restart count before triggering alert (1-100)
+  minRestartThreshold: 3
+  # -- Maximum time a pod can stay in Pending state (ms, 30s-1h)
+  maxPendingDurationMs: 600000
+  # -- Enable CrashLoopBackOff detection
+  enableCrashLoopDetection: true
+  # -- Enable ImagePull error detection
+  enableImagePullFailureDetection: true
+  # -- Enable OOMKill/resource limit detection
+  enableResourceLimitDetection: true
+
+# -----------------------------------------------------------------------------
+# Diagnosis Configuration
+# -----------------------------------------------------------------------------
+diagnosis:
+  # -- Enable automated diagnosis
+  enabled: true
+  # -- Timeout for diagnosis execution (ms, 5s-5m)
+  timeoutMs: 30000
+  # -- Cache TTL for diagnosis results (ms, 1m-24h)
+  cacheTtlMs: 300000
+  # -- Maximum diagnosis cache entries (10-50000)
+  cacheMaxEntries: 1000
+
+# -----------------------------------------------------------------------------
+# Alerting Configuration
+# -----------------------------------------------------------------------------
+alerting:
+  # -- Maximum retry attempts for failed alerts (1-10)
+  maxAttempts: 3
+  # -- Initial backoff delay for retries (ms, 100ms-60s)
+  backoffMs: 1000
+  # -- Maximum backoff delay for retries (ms, 1s-5m)
+  maxBackoffMs: 30000
+  # -- Severity levels to alert on (comma-separated: informational, low, medium, high, critical)
+  severityFilters: "medium,high,critical"
+  # -- Alert rate limiting window in minutes (0=disabled, max 1440)
+  rateLimitWindowMinutes: 5
+  # -- Include full pod manifests in alerts
+  includeFullManifests: false
+
+# -----------------------------------------------------------------------------
+# Resilience Configuration
+# -----------------------------------------------------------------------------
+resilience:
+  # -- Enable auto-reconnection on failures
+  reconnectionEnabled: true
+  # -- Initial reconnection backoff (ms, 100ms-60s)
+  initialBackoffMs: 1000
+  # -- Maximum reconnection backoff (ms, 1s-10m)
+  maxBackoffMs: 30000
+  # -- Exponential backoff multiplier (1.1-10)
+  backoffMultiplier: 2
+  # -- Max consecutive failures before giving up (1-100)
+  maxFailures: 5
+
+# -----------------------------------------------------------------------------
+# Health Check Configuration
+# -----------------------------------------------------------------------------
+healthCheck:
+  # -- Enable HTTP health check server
+  enabled: true
+  # -- Port for health check server (1024-65535)
+  port: 3000
+
+# -----------------------------------------------------------------------------
+# Development Configuration
+# -----------------------------------------------------------------------------
+development:
+  # -- Enable development features
+  developmentMode: false
+  # -- Enable Kubernetes client debug output
+  kubernetesDebug: false
+  # -- Custom kubeconfig path (empty for in-cluster config)
+  kubeconfigPath: ""
+
+# =============================================================================
+# Secrets Configuration
+# =============================================================================
+
+secrets:
+  # -- Name of an existing secret containing sensitive env vars (REQUIRED)
+  # The secret MUST contain: OPSCTRL_BACKEND_URL
+  # Optional keys: WEBHOOK_URL (for Slack alerts)
+  existingSecret: ""
+
+# =============================================================================
+# Extra Configuration
+# =============================================================================
+
+# -- Extra environment variables to add to the daemonset
+# Example:
+#   extraEnv:
+#     - name: MY_CUSTOM_VAR
+#       value: "my-value"
+extraEnv: []
+
+# -- Extra environment variables from ConfigMaps or Secrets
+# Example:
+#   extraEnvFrom:
+#     - configMapRef:
+#         name: my-configmap
+#     - secretRef:
+#         name: my-secret
+extraEnvFrom: []
+
+# -- Extra volumes to add to the daemonset
+extraVolumes: []
+
+# -- Extra volume mounts to add to the container
+extraVolumeMounts: []

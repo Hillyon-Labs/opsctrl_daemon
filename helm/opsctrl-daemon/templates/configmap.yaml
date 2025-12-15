@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "opsctrl-daemon.configMapName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "opsctrl-daemon.labels" . | nindent 4 }}
+data:
+  # Application Configuration
+  NODE_ENV: {{ .Values.config.nodeEnv | quote }}
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+
+  # Cluster Registration
+  {{- if .Values.clusterRegistration.clusterName }}
+  CLUSTER_NAME: {{ .Values.clusterRegistration.clusterName | quote }}
+  {{- end }}
+  {{- if .Values.clusterRegistration.userEmail }}
+  USER_EMAIL: {{ .Values.clusterRegistration.userEmail | quote }}
+  {{- end }}
+
+  # Monitoring Configuration
+  {{- if .Values.monitoring.watchNamespaces }}
+  WATCH_NAMESPACES: {{ .Values.monitoring.watchNamespaces | quote }}
+  {{- end }}
+  EXCLUDE_NAMESPACES: {{ .Values.monitoring.excludeNamespaces | quote }}
+  MIN_RESTART_THRESHOLD: {{ .Values.monitoring.minRestartThreshold | quote }}
+  MAX_PENDING_DURATION_MS: {{ .Values.monitoring.maxPendingDurationMs | quote }}
+  ENABLE_CRASH_LOOP_DETECTION: {{ .Values.monitoring.enableCrashLoopDetection | quote }}
+  ENABLE_IMAGE_PULL_FAILURE_DETECTION: {{ .Values.monitoring.enableImagePullFailureDetection | quote }}
+  ENABLE_RESOURCE_LIMIT_DETECTION: {{ .Values.monitoring.enableResourceLimitDetection | quote }}
+
+  # Diagnosis Configuration
+  DIAGNOSIS_ENABLED: {{ .Values.diagnosis.enabled | quote }}
+  DIAGNOSIS_TIMEOUT_MS: {{ .Values.diagnosis.timeoutMs | quote }}
+  DIAGNOSIS_CACHE_TTL_MS: {{ .Values.diagnosis.cacheTtlMs | quote }}
+  DIAGNOSIS_CACHE_MAX_ENTRIES: {{ .Values.diagnosis.cacheMaxEntries | quote }}
+
+  # Alerting Configuration
+  ALERT_MAX_ATTEMPTS: {{ .Values.alerting.maxAttempts | quote }}
+  ALERT_BACKOFF_MS: {{ .Values.alerting.backoffMs | quote }}
+  ALERT_MAX_BACKOFF_MS: {{ .Values.alerting.maxBackoffMs | quote }}
+  ALERT_SEVERITY_FILTERS: {{ .Values.alerting.severityFilters | quote }}
+  ALERT_RATE_LIMIT_WINDOW_MINUTES: {{ .Values.alerting.rateLimitWindowMinutes | quote }}
+  INCLUDE_FULL_MANIFESTS: {{ .Values.alerting.includeFullManifests | quote }}
+
+  # Resilience Configuration
+  RECONNECTION_ENABLED: {{ .Values.resilience.reconnectionEnabled | quote }}
+  RECONNECTION_INITIAL_BACKOFF_MS: {{ .Values.resilience.initialBackoffMs | quote }}
+  RECONNECTION_MAX_BACKOFF_MS: {{ .Values.resilience.maxBackoffMs | quote }}
+  RECONNECTION_BACKOFF_MULTIPLIER: {{ .Values.resilience.backoffMultiplier | quote }}
+  RECONNECTION_MAX_FAILURES: {{ .Values.resilience.maxFailures | quote }}
+
+  # Health Check Configuration
+  ENABLE_HEALTH_CHECK: {{ .Values.healthCheck.enabled | quote }}
+  HEALTH_CHECK_PORT: {{ .Values.healthCheck.port | quote }}
+
+  # Development Configuration
+  DEVELOPMENT_MODE: {{ .Values.development.developmentMode | quote }}
+  KUBERNETES_DEBUG: {{ .Values.development.kubernetesDebug | quote }}
+  {{- if .Values.development.kubeconfigPath }}
+  KUBECONFIG_PATH: {{ .Values.development.kubeconfigPath | quote }}
+  {{- end }}

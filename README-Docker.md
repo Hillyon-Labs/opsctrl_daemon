@@ -1,10 +1,41 @@
 # Docker Deployment Guide
 
-This guide covers how to build, run, and deploy the opsctrl-daemon using Docker.
+This guide covers how to build, run, and deploy the OpsCtrl Daemon using Docker.
 
-## 🐳 Building the Docker Image
+## Quick Start
 
-### Quick Build
+```bash
+# Pull and run the official image
+docker run -d \
+  --name opsctrl-daemon \
+  -v ~/.kube/config:/app/.kube/config:ro \
+  -e WATCH_NAMESPACES="default,production" \
+  -e WEBHOOK_URL="https://hooks.slack.com/services/..." \
+  opsctrl/daemon:latest
+```
+
+## Building the Docker Image
+
+### Standard Build
+
+```bash
+docker build -t opsctrl/daemon:local .
+```
+
+### Build with Custom Backend URL
+
+If you're running your own OpsCtrl backend, you can bake in the URL at build time:
+
+```bash
+docker build \
+  --build-arg OPSCTRL_BACKEND_URL="https://your-backend.example.com" \
+  -t opsctrl/daemon:local .
+```
+
+> **Note:** The official `opsctrl/daemon` image has the backend URL pre-configured. You only need to specify this if self-hosting.
+
+### Using Build Scripts
+
 ```bash
 # Build with default tag
 ./scripts/build-docker.sh
@@ -16,25 +47,23 @@ This guide covers how to build, run, and deploy the opsctrl-daemon using Docker.
 ./scripts/build-docker.sh v1.0.0 push
 ```
 
-### Manual Build
-```bash
-docker build -t opsctrl-daemon:latest .
-```
+## Running with Docker
 
-## 🚀 Running with Docker
+### Docker Run
 
-### Docker Run (Development)
 ```bash
 docker run -d \
   --name opsctrl-daemon \
   --network host \
   -v ~/.kube/config:/app/.kube/config:ro \
-  -e WEBHOOK_URL="https://your-webhook-url" \
   -e WATCH_NAMESPACES="default,production" \
-  opsctrl-daemon:latest
+  -e WEBHOOK_URL="https://hooks.slack.com/services/..." \
+  -e CLUSTER_NAME="my-cluster" \
+  opsctrl/daemon:latest
 ```
 
-### Docker Compose (Recommended)
+### Docker Compose
+
 ```bash
 # Start the service
 docker-compose up -d
@@ -46,94 +75,161 @@ docker-compose logs -f opsctrl-daemon
 docker-compose down
 ```
 
-## ☸️ Kubernetes Deployment (DaemonSet)
+### Overriding the Backend URL
 
-The opsctrl-daemon runs as a DaemonSet to ensure one instance per node for comprehensive cluster monitoring.
+If using the official image but want to point to a different backend:
 
-### Deploy to Kubernetes
 ```bash
-# Update the webhook URL in the secret
+docker run -d \
+  --name opsctrl-daemon \
+  -v ~/.kube/config:/app/.kube/config:ro \
+  -e OPSCTRL_BACKEND_URL="https://your-backend.example.com" \
+  -e WATCH_NAMESPACES="default" \
+  opsctrl/daemon:latest
+```
+
+## Kubernetes Deployment
+
+### Using Helm (Recommended)
+
+```bash
+# Add the repository
+helm repo add opsctrl https://charts.opsctrl.dev
+helm repo update
+
+# Create secret for sensitive values
 kubectl create secret generic opsctrl-daemon-secrets \
-  --from-literal=WEBHOOK_URL="https://your-webhook-url"
+  --namespace monitoring \
+  --from-literal=OPSCTRL_BACKEND_URL="https://api.opsctrl.dev" \
+  --from-literal=WEBHOOK_URL="https://hooks.slack.com/services/..."
 
-# Deploy the DaemonSet
-kubectl apply -f k8s-daemonset.yaml
+# Install
+helm install opsctrl-daemon opsctrl/opsctrl-daemon \
+  --namespace monitoring \
+  --create-namespace \
+  --set monitoring.watchNamespaces="default,production" \
+  --set secrets.existingSecret="opsctrl-daemon-secrets"
+```
 
-# Check status - should see one pod per node
-kubectl get daemonset opsctrl-daemon
-kubectl get pods -l app=opsctrl-daemon -o wide
+### Using kubectl
 
-# View logs from all instances
-kubectl logs -l app=opsctrl-daemon -f
+```bash
+# Create the secret first
+kubectl create secret generic opsctrl-daemon-secrets \
+  --from-literal=OPSCTRL_BACKEND_URL="https://api.opsctrl.dev" \
+  --from-literal=WEBHOOK_URL="https://hooks.slack.com/services/..."
 
-# View logs from specific node
-kubectl logs -l app=opsctrl-daemon -f --field-selector spec.nodeName=your-node-name
+# Deploy
+kubectl apply -f k8s-deployment.yaml
+
+# Check status
+kubectl get deployment opsctrl-daemon
+kubectl get pods -l app.kubernetes.io/name=opsctrl-daemon
 ```
 
 ### Health Check
+
 ```bash
-# Port forward to access health endpoint (any pod)
-kubectl port-forward daemonset/opsctrl-daemon 3000:3000
+# Port forward to access health endpoint
+kubectl port-forward svc/opsctrl-daemon 3000:3000
 
 # Check health
 curl http://localhost:3000/health
-
-# Check health of all DaemonSet pods
-kubectl get pods -l app=opsctrl-daemon -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.containerStatuses[0].ready}{"\n"}{end}'
 ```
 
-## 📋 Environment Variables
+## Environment Variables
 
-### Monitoring Configuration
-- `WATCH_NAMESPACES` - Comma-separated list of namespaces to monitor
-- `EXCLUDE_NAMESPACES` - Comma-separated list of namespaces to exclude
-- `MIN_RESTART_THRESHOLD` - Minimum container restarts to trigger alert (default: 3)
-- `MAX_PENDING_DURATION_MS` - Max time pod can be pending (default: 600000)
+### Required
 
-### Alerting Configuration
-- `WEBHOOK_URL` - Webhook URL for alerts (required for alerts)
-- `ALERT_SEVERITY_FILTERS` - Severity levels to alert on (default: medium,high,critical)
-- `ALERT_MAX_ATTEMPTS` - Max retry attempts for failed alerts (default: 3)
+| Variable | Description |
+|----------|-------------|
+| `WATCH_NAMESPACES` | Comma-separated namespaces to monitor |
 
-### Diagnosis Configuration
-- `DIAGNOSIS_ENABLED` - Enable/disable diagnosis (default: true)
-- `DIAGNOSIS_TIMEOUT_MS` - Timeout for diagnosis commands (default: 30000)
-- `DIAGNOSIS_CACHE_TTL_MS` - Cache TTL for diagnosis results (default: 300000)
+### Backend Configuration
 
-### Health Check Configuration
-- `ENABLE_HEALTH_CHECK` - Enable HTTP health check server (default: false)
-- `HEALTH_CHECK_PORT` - Port for health check server (default: 3000)
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `OPSCTRL_BACKEND_URL` | Backend API URL | Built into image |
+| `CLUSTER_NAME` | Unique cluster identifier | - |
+| `USER_EMAIL` | Email for cluster registration | - |
 
-## 🔒 Security Considerations
+### Alerting
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `WEBHOOK_URL` | Slack webhook URL | - |
+| `ALERT_SEVERITY_FILTERS` | Severity levels to alert on | `medium,high,critical` |
+| `ALERT_MAX_ATTEMPTS` | Max retry attempts | `3` |
+
+### Monitoring
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `EXCLUDE_NAMESPACES` | Namespaces to exclude | `kube-system,kube-public,kube-node-lease` |
+| `MIN_RESTART_THRESHOLD` | Restarts before alerting | `3` |
+| `MAX_PENDING_DURATION_MS` | Max pending time (ms) | `600000` |
+
+### Diagnosis
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DIAGNOSIS_ENABLED` | Enable diagnosis | `true` |
+| `DIAGNOSIS_TIMEOUT_MS` | Diagnosis timeout (ms) | `30000` |
+| `DIAGNOSIS_CACHE_TTL_MS` | Cache TTL (ms) | `300000` |
+
+### Health Check
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ENABLE_HEALTH_CHECK` | Enable HTTP health server | `true` |
+| `HEALTH_CHECK_PORT` | Health check port | `3000` |
+
+### Debug
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `LOG_LEVEL` | Log level (error, warn, info, debug) | `info` |
+| `DEVELOPMENT_MODE` | Enable dev features | `false` |
+
+## Security
 
 ### Non-root User
-The container runs as non-root user (UID 1001) for security.
+
+The container runs as non-root user (UID 1001).
 
 ### RBAC Permissions
-The Kubernetes DaemonSet includes minimal RBAC permissions:
-- `pods`: get, list, watch
-- `namespaces`: get, list, watch  
-- `events`: get, list, watch, create
 
-### Resource Limits (Per Node)
-- Memory: 256Mi limit, 128Mi request
-- CPU: 200m limit, 50m request
-- Conservative limits since this runs on every node
+Minimal read-only permissions:
+
+| Resource | Verbs |
+|----------|-------|
+| `pods` | get, list, watch |
+| `namespaces` | get, list, watch |
+| `events` | get, list, watch, create |
+| `leases` | get, list, watch, create, update, patch |
 
 ### Security Context
+
 - `allowPrivilegeEscalation: false`
 - `readOnlyRootFilesystem: true`
 - `runAsNonRoot: true`
 - All capabilities dropped
 
-## 📊 Monitoring
+### Resource Limits
 
-### Health Endpoint
+| Resource | Limit | Request |
+|----------|-------|---------|
+| Memory | 512Mi | 256Mi |
+| CPU | 500m | 100m |
+
+## Health Endpoint
+
 ```bash
 GET /health
 ```
 
-Returns:
+Response:
+
 ```json
 {
   "isHealthy": true,
@@ -155,78 +251,53 @@ Returns:
 }
 ```
 
-### Logs
-View structured logs:
+## Troubleshooting
+
+### Check RBAC Permissions
+
 ```bash
-docker logs opsctrl-daemon
-kubectl logs -l app=opsctrl-daemon
+kubectl auth can-i list pods --as=system:serviceaccount:monitoring:opsctrl-daemon
 ```
 
-## 🐛 Troubleshooting
+### View Logs
 
-### Common Issues
+```bash
+# Docker
+docker logs opsctrl-daemon
 
-1. **RBAC Permissions**
-   ```bash
-   # Check if service account has necessary permissions
-   kubectl auth can-i list pods --as=system:serviceaccount:default:opsctrl-daemon
-   ```
-
-2. **Network Connectivity**
-   ```bash
-   # Test Kubernetes API access
-   kubectl exec -it deployment/opsctrl-daemon -- wget -q -O- http://kubernetes.default.svc.cluster.local/api/v1
-   ```
-
-3. **Resource Limits**
-   ```bash
-   # Check resource usage
-   kubectl top pod -l app=opsctrl-daemon
-   ```
+# Kubernetes
+kubectl logs -l app.kubernetes.io/name=opsctrl-daemon -f
+```
 
 ### Debug Mode
-Run with debug logging:
+
 ```bash
-docker run -e LOG_LEVEL=debug opsctrl-daemon:latest
+docker run -e LOG_LEVEL=debug opsctrl/daemon:latest
 ```
 
-## 📈 Scaling
+### Resource Usage
 
-### DaemonSet Architecture
-The daemon runs as a DaemonSet with one instance per node:
-- Ensures comprehensive cluster coverage
-- Each pod monitors all namespaces from its node's perspective
-- Natural high availability and fault tolerance
-
-### Node Coverage
-- Runs on all nodes including master/control-plane nodes
-- Uses tolerations to handle node taints
-- Automatically scales with cluster size
-
-### Resource Efficiency
-- Conservative resource limits (256Mi RAM, 200m CPU per node)
-- Efficient caching and connection pooling
-- Minimal network overhead with cluster-local API calls
-
-## 🔄 Updates
-
-### Rolling Update
 ```bash
-# Update DaemonSet image
-kubectl set image daemonset/opsctrl-daemon opsctrl-daemon=opsctrl-daemon:v1.1.0
+kubectl top pod -l app.kubernetes.io/name=opsctrl-daemon
+```
 
-# Check rollout status
-kubectl rollout status daemonset/opsctrl-daemon
+## Updates
 
-# Monitor the update across all nodes
-kubectl get pods -l app=opsctrl-daemon -o wide --watch
+### Rolling Update (Helm)
+
+```bash
+helm upgrade opsctrl-daemon opsctrl/opsctrl-daemon --reuse-values
+```
+
+### Rolling Update (kubectl)
+
+```bash
+kubectl set image deployment/opsctrl-daemon opsctrl-daemon=opsctrl/daemon:v1.1.0
+kubectl rollout status deployment/opsctrl-daemon
 ```
 
 ### Rollback
-```bash
-# Rollback to previous version
-kubectl rollout undo daemonset/opsctrl-daemon
 
-# Check rollback status
-kubectl rollout status daemonset/opsctrl-daemon
+```bash
+kubectl rollout undo deployment/opsctrl-daemon
 ```

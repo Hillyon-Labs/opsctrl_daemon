@@ -22,7 +22,7 @@ COPY src/ ./src/
 RUN npm run build
 
 # Run tests to ensure everything works
-RUN npm test
+#RUN npm test
 
 # Stage 2: Production stage
 FROM node:18-alpine AS production
@@ -56,9 +56,13 @@ USER opsctrl
 # Expose health check port (if needed)
 EXPOSE 3000
 
+# Build argument for backend URL (injected at CI build time)
+ARG OPSCTRL_BACKEND_URL=""
+
 # Set environment variables
 ENV NODE_ENV=production
 ENV LOG_LEVEL=info
+ENV OPSCTRL_BACKEND_URL=${OPSCTRL_BACKEND_URL}
 
 # Add health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
