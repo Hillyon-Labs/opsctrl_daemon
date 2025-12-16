@@ -115,16 +115,6 @@ jobs:
         env:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
 
-      - name: Ensure CNAME file exists
-        run: |
-          git fetch origin gh-pages
-          git checkout gh-pages
-          git reset --hard origin/gh-pages
-          echo "charts.opsctrl.dev" > CNAME
-          git add CNAME
-          git diff --staged --quiet || git commit -m "Ensure CNAME for custom domain"
-          git push origin gh-pages
-
   # Create GitHub Release
   release:
     runs-on: ubuntu-latest
