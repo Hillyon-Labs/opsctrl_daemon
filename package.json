@@ -32,6 +32,7 @@
   "license": "MIT",
   "dependencies": {
     "@kubernetes/client-node": "^1.2.0",
+    "chalk": "^4.1.2",
     "axios": "^1.11.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
@@ -48,6 +49,6 @@
     "typescript": "^5.0.0"
   },
   "engines": {
-    "node": ">=16.0.0"
+    "node": ">=20.0.0"
   }
 }

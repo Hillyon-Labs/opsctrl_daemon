@@ -1,6 +1,6 @@
 # Multi-stage build for opsctrl-daemon
 # Stage 1: Build stage
-FROM node:18-alpine AS builder
+FROM node:22-alpine AS builder
 
 # Set working directory
 WORKDIR /app
@@ -25,7 +25,7 @@ RUN npm run build
 #RUN npm test
 
 # Stage 2: Production stage
-FROM node:18-alpine AS production
+FROM node:22-alpine AS production
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S opsctrl && \
