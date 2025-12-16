@@ -34,33 +34,122 @@ OpsCtrl Daemon watches your Kubernetes cluster for pod failures and automaticall
 ### Prerequisites
 
 - Kubernetes 1.21+
-- Helm 3.x (for Helm installation)
-- Slack webhook URL (optional, for alerts)
+- Helm 3.x
+- An OpsCtrl account ([sign up free](https://opsctrl.dev))
 
-### Helm (Recommended)
+### Quick Start (Helm)
 
 ```bash
-# Add the OpsCtrl Helm repository
+# 1. Add the OpsCtrl Helm repository
 helm repo add opsctrl https://charts.opsctrl.dev
 helm repo update
 
+# 2. Create the namespace
+kubectl create namespace opsctrl
 
-# Install the chart
+
+# 3. Install OpsCtrl Daemon
 helm install opsctrl-daemon opsctrl/opsctrl-daemon \
-  --namespace monitoring \
-  --create-namespace \
-  --set monitoring.watchNamespaces="default,production" \
-  --set clusterRegistration.clusterName="my-cluster"
+  --namespace opsctrl \
+  --set clusterRegistration.clusterName="my-cluster" \
+  --set clusterRegistration.userEmail="you@example.com" \
+  --set monitoring.watchNamespaces="default" \
+```
+
+### Verify Installation
+
+```bash
+# Check the pod is running
+kubectl get pods -n opsctrl
+
+# View logs to confirm monitoring started
+kubectl logs -n opsctrl -l app.kubernetes.io/name=opsctrl-daemon -f
+```
+
+You should see:
+```
+🚀 Starting opsctrl-daemon...
+🔗 Cluster registration is required before starting monitoring...
+✅ Cluster registered successfully: <cluster-id>
+✅ Monitoring started for 1 namespaces
+```
+
+### Installation Options
+
+<details>
+<summary><b>Monitor multiple namespaces</b></summary>
+
+```bash
+helm install opsctrl-daemon opsctrl/opsctrl-daemon \
+  --namespace opsctrl \
+  --set clusterRegistration.clusterName="my-cluster" \
+  --set clusterRegistration.userEmail="you@example.com" \
+  --set monitoring.watchNamespaces="default\,staging\,production" \
+  --set secrets.existingSecret="opsctrl-secrets"
+```
+
+> Note: Escape commas with `\,` in `--set` or use a values file instead.
+
+</details>
+
+<details>
+<summary><b>Using a values file</b></summary>
+
+Create `my-values.yaml`:
+
+```yaml
+clusterRegistration:
+  clusterName: "production-cluster"
+  userEmail: "platform-team@company.com"
+
+monitoring:
+  watchNamespaces: "default,staging,production"
+  excludeNamespaces: "kube-system,kube-public"
+  minRestartThreshold: 3
+
+secrets:
+  existingSecret: "opsctrl-secrets"
+```
+
+Install with:
+
+```bash
+helm install opsctrl-daemon opsctrl/opsctrl-daemon \
+  --namespace opsctrl \
+  -f my-values.yaml
+```
+
+</details>
+
+<details>
+<summary><b>Upgrade an existing installation</b></summary>
+
+```bash
+helm repo update
+helm upgrade opsctrl-daemon opsctrl/opsctrl-daemon \
+  --namespace opsctrl \
+  --reuse-values
+```
+
+</details>
+
+<details>
+<summary><b>Uninstall</b></summary>
+
+```bash
+helm uninstall opsctrl-daemon --namespace opsctrl
+kubectl delete namespace opsctrl
+```
+
+</details>
+
+### kubectl (Alternative)
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/Hillyon-Labs/opsctrl_daemon/main/k8s-deployment.yaml
 ```
 
 See [values.yaml](helm/opsctrl-daemon/values.yaml) for all configuration options.
-
-### Kubectl
-
-```bash
-# Apply the manifests directly
-kubectl apply -f https://raw.githubusercontent.com/Hillyon-Labs/opsctrl_daemon/main/k8s-deployment.yaml
-```
 
 ## Configuration
 
@@ -146,7 +235,7 @@ kubectl patch deployment orders-api -n production \
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 20+
 - npm
 - Access to a Kubernetes cluster (local or remote)
 
