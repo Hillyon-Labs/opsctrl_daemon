@@ -27,6 +27,9 @@ RUN npm run build
 # Stage 2: Production stage
 FROM node:22-alpine AS production
 
+# Update npm to fix glob vulnerability in bundled npm
+RUN npm install -g npm@11.6.4
+
 # Create non-root user for security
 RUN addgroup -g 1001 -S opsctrl && \
     adduser -S opsctrl -u 1001 -G opsctrl
