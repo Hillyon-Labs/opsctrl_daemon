@@ -44,19 +44,13 @@ OpsCtrl Daemon watches your Kubernetes cluster for pod failures and automaticall
 helm repo add opsctrl https://charts.opsctrl.dev
 helm repo update
 
-# Create a secret with sensitive configuration
-kubectl create secret generic opsctrl-daemon-secrets \
-  --namespace monitoring \
-  --from-literal=OPSCTRL_BACKEND_URL="https://api.opsctrl.dev" \
-  --from-literal=WEBHOOK_URL="https://hooks.slack.com/services/..."
 
 # Install the chart
 helm install opsctrl-daemon opsctrl/opsctrl-daemon \
   --namespace monitoring \
   --create-namespace \
   --set monitoring.watchNamespaces="default,production" \
-  --set clusterRegistration.clusterName="my-cluster" \
-  --set secrets.existingSecret="opsctrl-daemon-secrets"
+  --set clusterRegistration.clusterName="my-cluster"
 ```
 
 See [values.yaml](helm/opsctrl-daemon/values.yaml) for all configuration options.
