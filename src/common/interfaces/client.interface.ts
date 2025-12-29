@@ -1,27 +1,7 @@
 import { PodStatus } from "./podstatus.interface";
 
-
-
-export interface DiagnoseRequest {
-  podName: string;
-  namespace: string;
-  logs: string[];
-  events?: string[];
-  phase?: string;
-  containerState?: PodStatus; // refine if needed
-}
-
-export interface CredentialsFile {
-  authenticated: boolean;
-  token: string;
-  user_id: string;
-  first_name?: string;
-}
-
-export interface HelmReleaseInfo {
-  releaseName: string;
-  confidence: number;
-}
+// Re-export from helm-release-resolver for consistency
+export type { HelmReleaseInfo, HelmReleaseEvidence } from '../../core/helm-release-resolver';
 
 export interface StackComponent {
   podName: string;
@@ -30,60 +10,27 @@ export interface StackComponent {
   logs: string[];
 }
 
+export interface StackAnalysisPayload {
+  primaryPod: string;
+  helmRelease: string;
+  namespace: string;
+  timestamp: string;
+  components: StackComponent[];
+}
 
-
-export interface StackDiagnosisResult {
+export interface StackAnalysisResponse {
   stackOverview: {
-    summary: string;
-    components: Array<{
-      name: string;
-      role: string;
-      status: 'healthy' | 'degraded' | 'down';
-      restartCount: number;
-      issues: string[];
-    }>;
+    totalPods: number;
+    failingPods: number;
+    healthyPods: number;
+    namespace: string;
+    helmRelease: string;
   };
   rootCauseAnalysis: {
-    primaryCause: {
-      component: string;
-      issue: string;
-      evidence: string[];
-      startTime: string | null;
-      containerState: string;
-    };
-    failureCascade: Array<{
-      step: number;
-      component: string;
-      effect: string;
-      evidence: string;
-      timestamp: string;
-    }>;
+    primaryCause: string;
+    confidence: number;
+    evidence: string[];
   };
-  recommendations: {
-    immediateFix: {
-      description: string;
-      commands: string[];
-      actions: string[];
-    };
-    preventRecurrence: {
-      description: string;
-      helmValues: Record<string, any>;
-      configChanges: string[];
-    };
-    improvements: string[];
-  };
-  verification: {
-    commands: Array<{
-      description: string;
-      command: string;
-      expectedOutput: string;
-    }>;
-    healthyLogPatterns: string[];
-  };
-  debuggingCommands: Array<{
-    description: string;
-    command: string;
-  }>;
-  confidence: number;
-  alternativeCauses: string[];
+  recommendations: string[];
+  analysis: string;
 }

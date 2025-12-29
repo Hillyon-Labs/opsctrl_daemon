@@ -16,7 +16,7 @@ yarn-error.log*
 .env.development
 .env.production
 .env.test
-
+.CLAUDE.md
 # Runtime data
 pids
 *.pid

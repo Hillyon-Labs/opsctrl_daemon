@@ -59,6 +59,7 @@ export function parseContainerState(
       type,
       state: `Waiting: ${state.waiting.reason || 'Unknown'}`,
       reason: state.waiting.reason,
+      message: state.waiting.message,
     };
   }
 
@@ -68,6 +69,7 @@ export function parseContainerState(
       type,
       state: `Terminated: ${state.terminated.reason || 'Unknown'}`,
       reason: state.terminated.reason,
+      message: state.terminated.message,
     };
   }
 

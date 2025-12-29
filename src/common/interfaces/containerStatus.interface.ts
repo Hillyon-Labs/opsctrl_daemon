@@ -3,4 +3,5 @@ export interface ContainerStatusSummary {
   type: 'init' | 'main';
   state: string;
   reason?: string;
+  message?: string;
 }

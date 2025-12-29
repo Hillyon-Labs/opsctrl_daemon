@@ -1,4 +1,4 @@
-import { CoreV1Event, V1Pod } from '@kubernetes/client-node';
+import { CoreV1Event, V1Pod, V1ContainerStatus } from '@kubernetes/client-node';
 import chalk from 'chalk';
 
 import { ContainerStatusSummary } from "../common/interfaces/containerStatus.interface";
@@ -7,6 +7,7 @@ import { getCoreV1 } from "./kube";
 import { PodStatus } from '../common/interfaces/podstatus.interface';
 import { parseContainerState, printErrorAndExit } from '../utils/utils';
 import { StackComponent } from '../common/interfaces/client.interface';
+import { resolveHelmRelease } from './helm-release-resolver';
 
 import rules from '../assets/rules.json'
 
@@ -50,11 +51,11 @@ async function getPodStatus(podName: string, namespace: string): Promise<PodStat
     const initContainers = pod.status?.initContainerStatuses || [];
     const mainContainers = pod.status?.containerStatuses || [];
 
-    initContainers.forEach((initContainer) => {
+    initContainers.forEach((initContainer: V1ContainerStatus) => {
       containerStates.push(parseContainerState(initContainer, 'init'));
     });
 
-    mainContainers.forEach((mainContainer) => {
+    mainContainers.forEach((mainContainer: V1ContainerStatus) => {
       containerStates.push(parseContainerState(mainContainer, 'main'));
     });
 
@@ -73,16 +74,54 @@ async function getPodStatus(podName: string, namespace: string): Promise<PodStat
  * @param namespace - The namespace in which the pod resides.
  * @returns A promise that resolves to an array of event messages related to the pod.
  */
-export async function getPodEvents(podName: string, namespace: string): Promise<string[]> {
+export async function getPodEvents(podName: string, namespace: string, retryCount = 0): Promise<string[]> {
   const coreV1 = getCoreV1();
+  const MAX_RETRIES = 2;
+  const RETRY_DELAY_MS = 500;
 
   try {
-    const res = await coreV1.listNamespacedEvent({ namespace, limit: 10, timeoutSeconds: 10 });
+    // Get the pod to find its owner references
+    const pod = await coreV1.readNamespacedPod({ name: podName, namespace });
+    const ownerRefs = pod.metadata?.ownerReferences || [];
 
-    const events: CoreV1Event[] = res.items;
+    // Collect event targets: pod + its owners (ReplicaSet, StatefulSet, etc.)
+    const targets = [podName, ...ownerRefs.map(ref => ref.name)];
 
-    const filteredEvents = events
-      .filter((event) => event.involvedObject?.name === podName)
+    // Fetch events for all targets in parallel
+    const eventPromises = targets.map(async (targetName) => {
+      try {
+        const res = await coreV1.listNamespacedEvent({
+          namespace,
+          fieldSelector: `involvedObject.name=${targetName}`,
+          limit: 30,
+          timeoutSeconds: 10
+        });
+        return res.items;
+      } catch {
+        return [];
+      }
+    });
+
+    const allEventArrays = await Promise.all(eventPromises);
+    const allEvents: CoreV1Event[] = allEventArrays.flat();
+
+    // If no events found and we haven't exhausted retries, wait and try again
+    // (Events may not have propagated to API yet)
+    if (allEvents.length === 0 && retryCount < MAX_RETRIES) {
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+      return getPodEvents(podName, namespace, retryCount + 1);
+    }
+
+    // Dedupe by event UID, sort by time, take top 20
+    const seenUids = new Set<string>();
+    const uniqueEvents = allEvents.filter(e => {
+      const uid = e.metadata?.uid || `${e.involvedObject?.name}-${e.reason}-${e.message}`;
+      if (seenUids.has(uid)) return false;
+      seenUids.add(uid);
+      return true;
+    });
+
+    const sortedEvents = uniqueEvents
       .sort((a, b) => {
         const aTime = new Date(a.lastTimestamp || a.eventTime || '').getTime();
         const bTime = new Date(b.lastTimestamp || b.eventTime || '').getTime();
@@ -90,13 +129,17 @@ export async function getPodEvents(podName: string, namespace: string): Promise<
       })
       .slice(0, 20);
 
-    return filteredEvents.map((e) => e.message || '(no message)');
+    return sortedEvents.map((e) => {
+      const type = e.type || 'Unknown';
+      const reason = e.reason || '';
+      const message = e.message || '(no message)';
+      const source = e.involvedObject?.name !== podName ? `(${e.involvedObject?.kind})` : '';
+      return `[${type}] ${reason}: ${message} ${source}`.trim();
+    });
   } catch (err) {
-    console.log(err);
-
-    console.error(`\n ${chalk.red(`Error fetching events for pod ${podName}`)}`);
-
-    printErrorAndExit(`Error fetching events for pod ${podName}`);
+    // Don't crash on event fetch failure - just return empty array
+    console.error(`⚠️ Failed to fetch events for pod ${podName}: ${err}`);
+    return [];
   }
 }
 
@@ -233,8 +276,8 @@ export async function diagnoseStack(podName: string, namespace: string): Promise
   const startTime = performance.now();
 
   try {
-    // Step 1: Extract Helm release
-    const releaseInfo = await extractHelmRelease(podName, namespace);
+    // Step 1: Resolve Helm release (hybrid: local labels + backend fallback)
+    const releaseInfo = await resolveHelmRelease(podName, namespace);
 
     if (!releaseInfo.releaseName || releaseInfo.confidence < 0.7) {
       // Single pod analysis
@@ -274,53 +317,6 @@ export async function diagnoseStack(podName: string, namespace: string): Promise
   }
 }
 
-/**
- * Extracts Helm release information from a pod using local heuristics.
- * @param podName
- * @param namespace
- * @returns
- */
-async function extractHelmRelease(podName: string, namespace: string): Promise<{ releaseName: string; confidence: number }> {
-  const coreV1 = getCoreV1();
-
-  try {
-    const pod = await coreV1.readNamespacedPod({ name: podName, namespace });
-    const labels = pod.metadata?.labels || {};
-    const _annotations = pod.metadata?.annotations || {};
-
-    let releaseName = '';
-    let confidence = 0;
-
-    // Check Helm v3 labels (most common)
-    if (labels['app.kubernetes.io/managed-by'] === 'Helm') {
-      releaseName = labels['app.kubernetes.io/instance'] || '';
-      confidence = 0.9;
-    }
-    // Check legacy Helm v2 labels
-    else if (labels['heritage'] === 'Tiller') {
-      releaseName = labels['release'] || '';
-      confidence = 0.8;
-    }
-    // Check app labels that might indicate Helm deployment
-    else if (labels['helm.sh/chart']) {
-      releaseName = labels['app.kubernetes.io/instance'] || labels['app'] || '';
-      confidence = 0.7;
-    }
-    // Fallback: try to infer from pod name patterns
-    else {
-      const podNameParts = podName.split('-');
-      if (podNameParts.length >= 2) {
-        // Common pattern: release-name-component-hash
-        releaseName = podNameParts.slice(0, -2).join('-');
-        confidence = 0.5;
-      }
-    }
-
-    return { releaseName, confidence };
-  } catch (error) {
-    return { releaseName: '', confidence: 0 };
-  }
-}
 
 /**
  *
@@ -495,8 +491,8 @@ export async function getStackDataForBackend(podName: string, namespace: string)
   stackComponents?: { releaseName: string; confidence: number; components: any[] };
 }> {
   try {
-    // Extract Helm release
-    const releaseInfo = await extractHelmRelease(podName, namespace);
+    // Resolve Helm release (hybrid: local labels + backend fallback)
+    const releaseInfo = await resolveHelmRelease(podName, namespace);
 
     // Always collect primary pod data
     const [status, events, logs] = await Promise.all([

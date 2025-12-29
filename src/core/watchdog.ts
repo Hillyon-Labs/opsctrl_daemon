@@ -18,7 +18,8 @@ import {
 import { TokenStorage } from './token-storage';
 import { initKube } from './kube';
 import { printErrorAndExit } from '../utils/utils';
-import { reportPodFailure } from './client';
+import { runStackAnalysis } from './client';
+import { StackAnalysisPayload, StackComponent } from '../common/interfaces/client.interface';
 
 
 
@@ -1090,71 +1091,56 @@ export class KubernetesPodWatchdog extends EventEmitter {
   }
 
   /**
-   * Report failure to backend with comprehensive stack data aggregated into single pod format
-   * 
+   * Report failure to backend with comprehensive stack analysis
+   *
    * @private
    */
   private async reportFailureToBackend(failureEvent: PodFailureEvent): Promise<void> {
     try {
-      // Collecting stack data for backend reporting
-      
       // Collect comprehensive stack data for backend reporting
       const stackData = await getStackDataForBackend(
-        failureEvent.metadata.podName, 
+        failureEvent.metadata.podName,
         failureEvent.metadata.namespace
       );
-      
-      let aggregatedLogs = stackData.primaryPod.logs;
-      let aggregatedEvents = stackData.primaryPod.events;
-      
-      // If we have stack components, aggregate all their logs and events
-      if (stackData.stackComponents) {
-        const totalComponents = stackData.stackComponents.components.length;
-        
-        // Aggregate logs from all stack components
-        const allStackLogs: string[] = [];
-        const allStackEvents: string[] = [];
-        
-        // Add header for stack context (only in logs, not events)
-        allStackLogs.push(`=== STACK ANALYSIS: ${stackData.stackComponents.releaseName} (${totalComponents} components) ===`);
-        
-        // Add primary pod data first
-        allStackLogs.push(`--- PRIMARY POD: ${stackData.primaryPod.name} ---`);
-        allStackLogs.push(...stackData.primaryPod.logs);
-        allStackEvents.push(...stackData.primaryPod.events);
-        
-        // Add data from all other stack components
-        stackData.stackComponents.components.forEach(comp => {
-          if (comp.podName !== stackData.primaryPod.name) {
-            allStackLogs.push(`--- COMPONENT: ${comp.podName} ---`);
-            allStackLogs.push(...comp.logs);
-            // Only add actual Kubernetes events, not custom messages
-            allStackEvents.push(...comp.events);
-          }
-        });
-        
-        aggregatedLogs = allStackLogs;
-        aggregatedEvents = allStackEvents;
-        
-        // Stack data collected - no verbose logging
-      }
 
-      // Prepare failure data in existing API format but with comprehensive stack data
-      const failureData = {
-        podName: failureEvent.metadata.podName,
-        namespace: failureEvent.metadata.namespace,
-        logs: aggregatedLogs.length > 0 ? aggregatedLogs : ['No logs available'],
-        events: aggregatedEvents.length > 0 ? aggregatedEvents : ['No events available'],
-        phase: failureEvent.podSnapshot.phase,
-        containerState: {
+      // Build components array for stack analysis
+      const components: StackComponent[] = [];
+
+      // Add primary pod as first component
+      components.push({
+        podName: stackData.primaryPod.name,
+        status: {
           phase: failureEvent.podSnapshot.phase,
           containerStates: stackData.primaryPod.containerStates || []
-        }
+        },
+        events: stackData.primaryPod.events,
+        logs: stackData.primaryPod.logs
+      });
+
+      // Add stack components if available
+      if (stackData.stackComponents) {
+        stackData.stackComponents.components.forEach(comp => {
+          if (comp.podName !== stackData.primaryPod.name) {
+            components.push({
+              podName: comp.podName,
+              status: comp.status,
+              events: comp.events,
+              logs: comp.logs
+            });
+          }
+        });
+      }
+
+      // Build the stack analysis payload
+      const payload: StackAnalysisPayload = {
+        primaryPod: failureEvent.metadata.podName,
+        helmRelease: stackData.stackComponents?.releaseName || failureEvent.metadata.podName,
+        namespace: failureEvent.metadata.namespace,
+        timestamp: failureEvent.metadata.timestamp.toISOString(),
+        components
       };
 
-      await reportPodFailure(failureData);
-      
-      // Backend reporting completed
+      await runStackAnalysis(payload);
     } catch (error) {
       console.error(`❌ Failed to report failure to backend: ${error}`);
     }
