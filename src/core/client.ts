@@ -1,8 +1,6 @@
-import { promisify } from "util";
-import { gzip } from "zlib";
 import axios from 'axios';
 import { printErrorAndExit } from "../utils/utils";
-import { DiagnoseRequest, HelmReleaseInfo } from "../common/interfaces/client.interface";
+import { StackAnalysisPayload, StackAnalysisResponse } from "../common/interfaces/client.interface";
 import { DEFAULT_API_URL } from "./config";
 import { TokenStorage } from "./token-storage";
 
@@ -12,80 +10,27 @@ interface RefreshTokenResponseDto {
   expiresIn: number;
 }
 
-const gzipAsync = promisify(gzip);
-
-export async function runFurtherDiagnosis(payload: DiagnoseRequest): Promise<any> {
-  try {
-    const compressed = await gzipAsync(Buffer.from(JSON.stringify(payload)));
-
-    const tokenStorage = new TokenStorage();
-    const token = await tokenStorage.getValidAccessToken();
-    if (!token) {
-      console.warn('No valid authentication token available. Please ensure cluster is registered.');
-    }
-
-    const response = await axios.post(`${DEFAULT_API_URL}/diagnose`, compressed, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Encoding': 'gzip',
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    return response.data;
-  } catch (error: any) {
-    printErrorAndExit(error.response?.data.message ?? 'External request failed');
-  }
-}
-
-export async function parsePodManifest(manifest: any): Promise<HelmReleaseInfo> {
+export async function runStackAnalysis(payload: StackAnalysisPayload): Promise<StackAnalysisResponse | null> {
   try {
     const tokenStorage = new TokenStorage();
-    const token = await tokenStorage.getValidAccessToken();
-    if (!token) {
-      console.warn('No valid authentication token available. Please ensure cluster is registered.');
-    }
 
-    const response = await fetch(`${DEFAULT_API_URL}/diagnose/parse-pod-manifest`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(manifest),
-    });
-
-    return await response.json() as HelmReleaseInfo;
-  } catch (error) {
-    printErrorAndExit('Error parsing pod manifest');
-    throw error; // This will never execute but satisfies TypeScript
-  }
-}
-
-export async function runStackAnalysis(compressedPayload: Buffer): Promise<string> {
-  try {
-    const tokenStorage = new TokenStorage();
-    const token = await tokenStorage.getValidAccessToken();
-    if (!token) {
-      console.warn('No valid authentication token available. Please ensure cluster is registered.');
-    }
-
-    const response = await axios.post(
-      `${DEFAULT_API_URL}/diagnose/analyze-stack`,
-      compressedPayload,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Encoding': 'gzip',
-          Authorization: `Bearer ${token}`,
+    return await tokenStorage.makeAuthenticatedRequest(async (token) => {
+      const response = await axios.post(
+        `${DEFAULT_API_URL}/daemon/analyze-stack`,
+        payload,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
         },
-      },
-    );
+      );
 
-    return response.data.analysis || response.data; // depends on backend response shape
+      return response.data as StackAnalysisResponse;
+    });
   } catch (error: any) {
-    printErrorAndExit(error.response?.data.message ?? 'Failed to analyze stack');
-    throw error; // This will never execute but satisfies TypeScript
+    console.error(`❌ Failed to analyze stack: ${error.response?.data?.message || error.message}`);
+    return null;
   }
 }
 
@@ -115,7 +60,6 @@ export async function getUserClusterTokens(
   orgId: string
 ): Promise<any> {
   try {
-    
     const response = await axios.get(
       `${DEFAULT_API_URL}/auth/cluster/tokens?clusterId=${clusterId}&orgId=${orgId}`,
       {
@@ -128,13 +72,13 @@ export async function getUserClusterTokens(
     return response.data;
   } catch (error: any) {
     console.error(`📡 getUserClusterTokens error:`, error.response?.data || error.message);
-    }
+  }
 }
 
 export async function getDaemonInfo(): Promise<any> {
   try {
     const tokenStorage = new TokenStorage();
-    
+
     return await tokenStorage.makeAuthenticatedRequest(async (token) => {
       const response = await axios.get(
         `${DEFAULT_API_URL}/daemon/me`,
@@ -147,38 +91,8 @@ export async function getDaemonInfo(): Promise<any> {
       );
       return response.data;
     });
-  } catch (error: any) {    
-    console.error(error.response?.data.message ?? 'Failed to get daemon info');
-    return null;
-  }
-}
-
-export async function reportPodFailure(failureData: {
-  podName: string;
-  namespace: string;
-  logs: string[];
-  events?: string[];
-  phase?: string;
-  containerState?: any;
-}): Promise<any> {
-  try {
-    const tokenStorage = new TokenStorage();
-    
-    return await tokenStorage.makeAuthenticatedRequest(async (token) => {
-      const response = await axios.post(
-        `${DEFAULT_API_URL}/daemon/diagnose-pod`,
-        failureData,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-      return response.data;
-    });
   } catch (error: any) {
-    console.error(`❌ Failed to report pod failure: ${error.response?.data?.message || error.message}`);
+    console.error(error.response?.data.message ?? 'Failed to get daemon info');
     return null;
   }
 }
