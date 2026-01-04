@@ -20,6 +20,51 @@ entries:
         fingerprint: ""
         url: ""
     apiVersion: v2
+    appVersion: 0.1.3
+    created: "2026-01-04T19:20:30.361313728Z"
+    description: A Helm chart for deploying the OpsCtrl Daemon - Kubernetes Pod monitoring
+      and failure detection with automated diagnosis
+    digest: 415e981e8ea313a9719e7cee466121059ad2cda106fc71c6307f5bdc4d9f56a7
+    home: https://github.com/Hillyon-Labs/opsctrl_daemon
+    icon: https://raw.githubusercontent.com/Hillyon-Labs/opsctrl_daemon/main/assets/icon.png
+    keywords:
+    - kubernetes
+    - monitoring
+    - pod-monitoring
+    - alerting
+    - slack
+    - diagnosis
+    - crashloop
+    - observability
+    maintainers:
+    - email: orchideirakoze@gmail.com
+      name: Hillyon Labs
+    name: opsctrl-daemon
+    sources:
+    - https://github.com/Hillyon-Labs/opsctrl_daemon
+    type: application
+    urls:
+    - opsctrl-daemon-0.1.3.tgz
+    version: 0.1.3
+  - annotations:
+      artifacthub.io/containsSecurityUpdates: "false"
+      artifacthub.io/license: MIT
+      artifacthub.io/links: |
+        - name: Chart Repository
+          url: https://charts.opsctrl.dev
+        - name: Documentation
+          url: https://github.com/Hillyon-Labs/opsctrl_daemon#readme
+        - name: Docker Hub
+          url: https://hub.docker.com/r/opsctrl/daemon
+        - name: Source
+          url: https://github.com/Hillyon-Labs/opsctrl_daemon
+      artifacthub.io/maintainers: |
+        - name: Hillyon Labs
+          email: orchideirakoze@gmail.com
+      artifacthub.io/signKey: |
+        fingerprint: ""
+        url: ""
+    apiVersion: v2
     appVersion: 0.1.2
     created: "2025-12-16T14:34:48.903215346Z"
     description: A Helm chart for deploying the OpsCtrl Daemon - Kubernetes Pod monitoring
@@ -136,4 +181,4 @@ entries:
     urls:
     - opsctrl-daemon-0.1.0.tgz
     version: 0.1.0
-generated: "2025-12-16T14:34:48.903227769Z"
+generated: "2026-01-04T19:20:30.36133094Z"
