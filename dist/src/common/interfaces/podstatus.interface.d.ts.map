@@ -1,1 +1,0 @@
-{"version":3,"file":"podstatus.interface.d.ts","sourceRoot":"","sources":["../../../../src/common/interfaces/podstatus.interface.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,sBAAsB,EAAE,MAAM,6BAA6B,CAAC;AAErE,MAAM,WAAW,SAAS;IACxB,KAAK,EAAE,MAAM,CAAC;IACd,eAAe,EAAE,sBAAsB,EAAE,CAAC;CAC3C"}

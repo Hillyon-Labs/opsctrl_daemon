@@ -290,12 +290,49 @@
                     <button class="copy-btn" onclick="copyCode(this)">Copy</button>
                     <code><span class="comment"># Add the repository</span>
 <span class="command">helm repo add opsctrl https://charts.opsctrl.dev</span>
-
-<span class="comment"># Update repositories</span>
 <span class="command">helm repo update</span>
 
-<span class="comment"># Install the chart</span>
-<span class="command">helm install opsctrl-daemon opsctrl/opsctrl-daemon</span></code>
+<span class="comment"># Install with required configuration</span>
+<span class="command">helm install opsctrl-daemon opsctrl/opsctrl-daemon \
+  --set clusterRegistration.clusterName="my-cluster" \
+  --set clusterRegistration.userEmail="you@example.com" \
+  --set monitoring.watchNamespaces="default,my-app" \
+  --set secrets.backendUrl="https://api.opsctrl.io/api/v1"</span></code>
+                </div>
+                <p style="color: var(--text-secondary); font-size: 14px; margin-top: 16px;">
+                    <strong style="color: var(--text-primary);">Required:</strong>
+                    <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">clusterName</code>,
+                    <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">userEmail</code>,
+                    <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">watchNamespaces</code>, and
+                    <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px;">backendUrl</code>
+                </p>
+            </div>
+        </section>
+
+        <section>
+            <h2>Configuration</h2>
+            <div class="install-card">
+                <div style="display: grid; gap: 12px;">
+                    <div style="display: flex; gap: 12px; align-items: baseline;">
+                        <code style="background: var(--bg-tertiary); padding: 4px 8px; border-radius: 4px; font-size: 13px; min-width: 220px;">clusterRegistration.clusterName</code>
+                        <span style="color: var(--text-secondary); font-size: 14px;">Unique identifier for your cluster</span>
+                    </div>
+                    <div style="display: flex; gap: 12px; align-items: baseline;">
+                        <code style="background: var(--bg-tertiary); padding: 4px 8px; border-radius: 4px; font-size: 13px; min-width: 220px;">clusterRegistration.userEmail</code>
+                        <span style="color: var(--text-secondary); font-size: 14px;">Email for cluster registration</span>
+                    </div>
+                    <div style="display: flex; gap: 12px; align-items: baseline;">
+                        <code style="background: var(--bg-tertiary); padding: 4px 8px; border-radius: 4px; font-size: 13px; min-width: 220px;">monitoring.watchNamespaces</code>
+                        <span style="color: var(--text-secondary); font-size: 14px;">Comma-separated namespaces to monitor</span>
+                    </div>
+                    <div style="display: flex; gap: 12px; align-items: baseline;">
+                        <code style="background: var(--bg-tertiary); padding: 4px 8px; border-radius: 4px; font-size: 13px; min-width: 220px;">secrets.backendUrl</code>
+                        <span style="color: var(--text-secondary); font-size: 14px;">OpsCtrl backend API URL</span>
+                    </div>
+                    <div style="display: flex; gap: 12px; align-items: baseline;">
+                        <code style="background: var(--bg-tertiary); padding: 4px 8px; border-radius: 4px; font-size: 13px; min-width: 220px;">secrets.webhookUrl</code>
+                        <span style="color: var(--text-secondary); font-size: 14px;">Slack webhook for alerts (optional)</span>
+                    </div>
                 </div>
             </div>
         </section>
