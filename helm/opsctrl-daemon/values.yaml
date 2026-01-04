@@ -80,12 +80,20 @@ tolerations: []
 # -- Affinity rules for pod scheduling
 affinity: {}
 
-# Deployment strategy
-strategy:
-  type: RollingUpdate
-  rollingUpdate:
-    maxUnavailable: 0
-    maxSurge: 1
+# -----------------------------------------------------------------------------
+# Persistence Configuration
+# -----------------------------------------------------------------------------
+persistence:
+  # -- Enable persistent storage for daemon state
+  enabled: true
+  # -- Storage class (leave empty for default, use "-" for no storage class)
+  storageClass: ""
+  # -- Access mode for the PVC
+  accessMode: ReadWriteOnce
+  # -- Size of the persistent volume
+  size: 1Gi
+  # -- Mount path for persistent data
+  mountPath: /home/opsctrl/.opsctrl
 
 # Liveness probe configuration
 livenessProbe:
@@ -217,10 +225,13 @@ development:
 # =============================================================================
 
 secrets:
-  # -- Name of an existing secret containing sensitive env vars (REQUIRED)
-  # The secret MUST contain: OPSCTRL_BACKEND_URL
-  # Optional keys: WEBHOOK_URL (for Slack alerts)
+  # -- Name of an existing secret containing sensitive env vars
+  # If set, this takes precedence over backendUrl below
   existingSecret: ""
+  # -- OpsCtrl backend URL (creates a secret automatically if existingSecret is not set)
+  backendUrl: "https://you_api.controll.dev/api/v1"
+  # -- Optional webhook URL for Slack alerts
+  webhookUrl: ""
 
 # =============================================================================
 # Extra Configuration

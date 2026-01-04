@@ -1,17 +1,34 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "opsctrl-daemon.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "opsctrl-daemon.labels" . | nindent 4 }}
 spec:
+  serviceName: {{ include "opsctrl-daemon.fullname" . }}
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
       {{- include "opsctrl-daemon.selectorLabels" . | nindent 6 }}
-  strategy:
-    {{- toYaml .Values.strategy | nindent 4 }}
+  {{- if .Values.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - {{ .Values.persistence.accessMode | quote }}
+        {{- if .Values.persistence.storageClass }}
+        {{- if (eq "-" .Values.persistence.storageClass) }}
+        storageClassName: ""
+        {{- else }}
+        storageClassName: {{ .Values.persistence.storageClass | quote }}
+        {{- end }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size | quote }}
+  {{- end }}
   template:
     metadata:
       annotations:
@@ -60,6 +77,9 @@ spec:
             {{- if .Values.secrets.existingSecret }}
             - secretRef:
                 name: {{ .Values.secrets.existingSecret }}
+            {{- else if .Values.secrets.backendUrl }}
+            - secretRef:
+                name: {{ include "opsctrl-daemon.fullname" . }}-secret
             {{- end }}
             {{- with .Values.extraEnvFrom }}
             {{- toYaml . | nindent 12 }}
@@ -95,6 +115,10 @@ spec:
               mountPath: /tmp
             - name: app-tmp
               mountPath: /app/tmp
+            {{- if .Values.persistence.enabled }}
+            - name: data
+              mountPath: {{ .Values.persistence.mountPath }}
+            {{- end }}
             {{- with .Values.extraVolumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
