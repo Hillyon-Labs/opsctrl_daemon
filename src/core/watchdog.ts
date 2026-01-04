@@ -1131,6 +1131,13 @@ export class KubernetesPodWatchdog extends EventEmitter {
         });
       }
 
+      // Ensure components have at least a placeholder if no events were collected
+      components.forEach(comp => {
+        if (comp.events.length === 0) {
+          comp.events = ['[unknown]'];
+        }
+      });
+
       // Build the stack analysis payload
       const payload: StackAnalysisPayload = {
         primaryPod: failureEvent.metadata.podName,
