@@ -136,8 +136,8 @@ export function runHttpBasedHealthCheck(healthConfig: any, watchdog: KubernetesP
         }
       });
       
-      server.listen(healthConfig.port, () => {
-        console.log(`🏥 Health check server listening on port ${healthConfig.port}`);
+      server.listen(healthConfig.port, '0.0.0.0', () => {
+        console.log(`🏥 Health check server listening on 0.0.0.0:${healthConfig.port}`);
       });
 }
 
