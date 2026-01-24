@@ -44,16 +44,14 @@ OpsCtrl Daemon watches your Kubernetes cluster for pod failures and automaticall
 helm repo add opsctrl https://charts.opsctrl.dev
 helm repo update
 
-# 2. Create the namespace
-kubectl create namespace opsctrl
-
-
-# 3. Install OpsCtrl Daemon
-helm install opsctrl-daemon opsctrl/opsctrl-daemon \
+# 2. Install OpsCtrl Daemon
+helm upgrade opsctrl-daemon opsctrl/opsctrl-daemon \
+  --install \
+  --create-namespace \
   --namespace opsctrl \
   --set clusterRegistration.clusterName="my-cluster" \
   --set clusterRegistration.userEmail="you@example.com" \
-  --set monitoring.watchNamespaces="default" \
+  --set 'monitoring.watchNamespaces=default'
 ```
 
 ### Verify Installation
@@ -80,15 +78,16 @@ You should see:
 <summary><b>Monitor multiple namespaces</b></summary>
 
 ```bash
-helm install opsctrl-daemon opsctrl/opsctrl-daemon \
+helm upgrade opsctrl-daemon opsctrl/opsctrl-daemon \
+  --install \
+  --create-namespace \
   --namespace opsctrl \
   --set clusterRegistration.clusterName="my-cluster" \
   --set clusterRegistration.userEmail="you@example.com" \
-  --set monitoring.watchNamespaces="default\,staging\,production" \
-  --set secrets.existingSecret="opsctrl-secrets"
+  --set 'monitoring.watchNamespaces=default\,staging\,production'
 ```
 
-> Note: Escape commas with `\,` in `--set` or use a values file instead.
+> **Important:** When specifying multiple namespaces, wrap the entire `--set` argument in single quotes and escape commas with `\,`. Alternatively, use a values file.
 
 </details>
 
@@ -114,7 +113,9 @@ secrets:
 Install with:
 
 ```bash
-helm install opsctrl-daemon opsctrl/opsctrl-daemon \
+helm upgrade opsctrl-daemon opsctrl/opsctrl-daemon \
+  --install \
+  --create-namespace \
   --namespace opsctrl \
   -f my-values.yaml
 ```
@@ -125,10 +126,18 @@ helm install opsctrl-daemon opsctrl/opsctrl-daemon \
 <summary><b>Upgrade an existing installation</b></summary>
 
 ```bash
+# Update helm repo and upgrade with existing values
 helm repo update
 helm upgrade opsctrl-daemon opsctrl/opsctrl-daemon \
   --namespace opsctrl \
   --reuse-values
+
+# Or upgrade with new configuration
+helm upgrade opsctrl-daemon opsctrl/opsctrl-daemon \
+  --namespace opsctrl \
+  --set 'monitoring.watchNamespaces=default\,staging\,production' \
+  --set clusterRegistration.clusterName="my-cluster" \
+  --set clusterRegistration.userEmail="you@example.com"
 ```
 
 </details>
