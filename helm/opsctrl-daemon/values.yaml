@@ -131,7 +131,8 @@ config:
 # Cluster Registration Configuration
 # -----------------------------------------------------------------------------
 clusterRegistration:
-  # -- Unique cluster identifier (required for registration)
+  # -- Unique cluster identifier (REQUIRED - must be provided)
+  # Example: "production-cluster", "staging-us-east-1"
   clusterName: ""
   # -- User email for cluster registration
   userEmail: ""

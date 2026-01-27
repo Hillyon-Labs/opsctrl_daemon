@@ -27,7 +27,6 @@ import {
   ALERT_RATE_LIMIT_MAX_MINUTES,
   ALERT_RATE_LIMIT_DEFAULT_MINUTES
 } from '../common/time.constants';
-import { getCurrentContext } from '../core/kube';
 
 /**
  * Comprehensive environment variable validation schema using Joi
@@ -237,16 +236,17 @@ const environmentSchema = Joi.object({
   // CLUSTER REGISTRATION CONFIGURATION
   // ====================================
   CLUSTER_NAME: Joi.string()
-    .optional()
+    .required()
     .pattern(/^[a-zA-Z0-9-_]+$/)
     .min(1)
     .max(64)
     .messages({
       'string.pattern.base': 'CLUSTER_NAME must contain only alphanumeric characters, hyphens, and underscores',
       'string.min': 'CLUSTER_NAME must be at least 1 character long',
-      'string.max': 'CLUSTER_NAME must be less than 64 characters long'
+      'string.max': 'CLUSTER_NAME must be less than 64 characters long',
+      'any.required': 'CLUSTER_NAME is required - provide a unique identifier for this cluster'
     })
-    .description('Unique name for this cluster (for registration with backend)'),
+    .description('Unique name for this cluster (required for registration with backend)'),
 
   USER_EMAIL: Joi.string()
     .optional()
@@ -327,7 +327,7 @@ interface ValidatedConfig {
     kubeconfigPath?: string;
   };
   clusterRegistration: {
-    clusterName?: string;
+    clusterName: string;
     userEmail?: string;
     backendUrl: string;
   };
@@ -390,8 +390,6 @@ export class WatchdogConfig {
       convert: true
     });
 
-
-    const currentClusterName = getCurrentContext();
 
     if (error) {
       return {
@@ -457,7 +455,7 @@ export class WatchdogConfig {
         kubeconfigPath: value.KUBECONFIG_PATH || undefined,
       },
       clusterRegistration: {
-        clusterName: currentClusterName || undefined,
+        clusterName: value.CLUSTER_NAME,
         userEmail: value.USER_EMAIL || undefined,
         backendUrl: value.OPSCTRL_BACKEND_URL,
       },
